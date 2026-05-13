@@ -38,9 +38,10 @@ import {Shares} from "src/shares/Shares.sol";
 /// @author Enzyme Foundation <security@enzyme.finance>
 /// @notice Single-transaction deployment of a fully-configured Onyx vault (Shares + components)
 /// @dev Stateless after construction; safe to call permissionlessly.
-/// The factory becomes the temporary owner of the deployed Shares while components are wired,
-/// then transfers ownership to `config.owner` (Ownable2Step pending). The new owner must call
-/// `Shares.acceptOwnership()` in a follow-up transaction to complete the handover.
+/// `Shares` is initialized with `config.initialOwner` while components are wired; that
+/// account must authorize this deployer's `onlyAdminOrOwner` / `onlyOwner` calls. After wiring, `transferOwnership(config.nominatedOwner)`
+/// runs (Ownable2Step pending); the nominee must call `Shares.acceptOwnership()` to complete
+/// the handover.
 contract SharesDeployer {
     using SafeERC20 for IERC20;
 
@@ -74,16 +75,28 @@ contract SharesDeployer {
         DeployAddressLists
     }
 
-    /// @dev How a deposit allowlist should be sourced when restriction/source so requires.
-    /// `None`: no external allowlist.
+    /// @dev How an external address list should be sourced when restriction/source so requires.
+    /// `None`: no external list.
     /// `Existing`: use the address provided in the config.
-    /// `DeploySharesOwnedAddressList`: deploy a new component-style list owned by the vault.
-    /// `DeployOwnableAddressList`: deploy a new standalone list with the configured owner.
+    /// `SharedAddressList`: use a list from `DeployConfig.sharedAddressLists` at `sharedAddressListIndex`.
     enum ExternalListSource {
         None,
         Existing,
-        DeploySharesOwnedAddressList,
-        DeployOwnableAddressList
+        SharedAddressList
+    }
+
+    /// @dev Kind of list deployed for a catalog entry in `DeployConfig.sharedAddressLists`.
+    enum SharedAddressListKind {
+        SharesOwned,
+        Ownable
+    }
+
+    /// @dev One list to deploy once; referenced by consumers via `ExternalListSource.SharedAddressList`.
+    struct SharedAddressListDefinition {
+        SharedAddressListKind kind;
+        /// @dev Required when `kind == Ownable`; ignored for `SharesOwned`.
+        address ownableListOwner;
+        address[] seededAddresses;
     }
 
     struct SharesConfig {
@@ -134,7 +147,9 @@ contract SharesDeployer {
         ERC7540LikeDepositQueue.DepositRestriction restriction;
         ExternalListSource externalListSource;
         address externalListExisting;
-        address externalListOwner;
+        /// @dev Used when `externalListSource == SharedAddressList`; must be `< sharedAddressLists.length`.
+        uint256 sharedAddressListIndex;
+        /// @dev Seed addresses for `ControllerAllowlistInternal`; must be empty for other restrictions.
         address[] allowedDepositors;
     }
 
@@ -143,8 +158,8 @@ contract SharesDeployer {
         uint24 maxSharePriceStaleness;
         ExternalListSource depositorAllowlistSource;
         address depositorAllowlistExisting;
-        address depositorAllowlistOwner;
-        address[] allowedDepositors;
+        /// @dev Used when `depositorAllowlistSource == SharedAddressList`.
+        uint256 sharedAddressListIndex;
     }
 
     struct RedeemHandlerConfig {
@@ -156,8 +171,8 @@ contract SharesDeployer {
         AddressListsSharesTransferValidator.ListType listType;
         ExternalListSource externalListSource;
         address externalListExisting;
-        address externalListOwner;
-        address[] seededAddresses;
+        /// @dev Used when `externalListSource == SharedAddressList`.
+        uint256 sharedAddressListIndex;
     }
 
     struct TransferValidatorConfig {
@@ -192,11 +207,16 @@ contract SharesDeployer {
 
     struct DeployConfig {
         SharesConfig shares;
-        address owner;
+        /// @dev Initial `Shares` owner passed to `Shares.init` (must allow this deployer to configure Shares).
+        address initialOwner;
+        /// @dev Pending owner after deploy (`transferOwnership`; nominee calls `acceptOwnership()`).
+        address nominatedOwner;
         address[] admins;
         TransferValidatorConfig transferValidator;
         ComponentsConfig components;
         PreMintConfig preMint;
+        /// @dev Lists deployed once before handlers; consumers use `ExternalListSource.SharedAddressList` + index.
+        SharedAddressListDefinition[] sharedAddressLists;
     }
 
     struct Deployed {
@@ -215,6 +235,8 @@ contract SharesDeployer {
         address transferValidator;
         address transferValidatorRecipientList;
         address transferValidatorSenderList;
+        /// @dev Addresses of `sharedAddressLists` entries in deployment order.
+        address[] sharedAddressLists;
     }
 
     //==================================================================================================================
@@ -239,13 +261,14 @@ contract SharesDeployer {
     // Events
     //==================================================================================================================
 
-    event VaultDeployed(Deployed deployed, address owner);
+    event VaultDeployed(Deployed deployed, address nominatedOwner);
 
     //==================================================================================================================
     // Errors
     //==================================================================================================================
 
-    error SharesDeployer__OwnerCannotBeZero();
+    error SharesDeployer__InitialOwnerCannotBeZero();
+    error SharesDeployer__NominatedOwnerCannotBeZero();
     error SharesDeployer__ManagementFeeRequiresFeeHandler();
     error SharesDeployer__PerformanceFeeRequiresFeeHandler();
     error SharesDeployer__AccountERC20TrackerRequiresValuationHandler();
@@ -255,9 +278,10 @@ contract SharesDeployer {
     error SharesDeployer__ExternalListSourceNotAllowed();
     error SharesDeployer__ExternalListExistingCannotBeZero();
     error SharesDeployer__OwnableAddressListOwnerCannotBeZero();
-    error SharesDeployer__SeedNotAllowedForExistingList();
+    error SharesDeployer__SeedNotAllowedForExternalList();
     error SharesDeployer__SeedNotAllowedWithoutAllowlist();
     error SharesDeployer__TransferValidatorExistingCannotBeZero();
+    error SharesDeployer__SharedAddressListIndexOutOfBounds();
 
     //==================================================================================================================
     // Constructor
@@ -286,8 +310,8 @@ contract SharesDeployer {
     /// @notice Deploys and wires a complete Onyx vault in a single transaction
     /// @param _cfg The full vault configuration
     /// @return shares_ The address of the deployed Shares proxy
-    /// @dev Ownership is transferred to `_cfg.owner` (Ownable2Step pending); the new owner must
-    /// call `acceptOwnership()` to complete the handover.
+    /// @dev Pending owner is `_cfg.nominatedOwner` (Ownable2Step); the nominee must call
+    /// `acceptOwnership()` to complete the handover.
     function deploy(DeployConfig calldata _cfg) external returns (address shares_) {
         __validate(_cfg);
 
@@ -296,9 +320,11 @@ contract SharesDeployer {
         d.shares = BeaconFactory(SHARES_FACTORY)
             .deployProxy(
                 abi.encodeCall(
-                    Shares.init, (address(this), _cfg.shares.name, _cfg.shares.symbol, _cfg.shares.valueAsset)
+                    Shares.init, (_cfg.initialOwner, _cfg.shares.name, _cfg.shares.symbol, _cfg.shares.valueAsset)
                 )
             );
+
+        d.sharedAddressLists = __deploySharedAddressLists(d, _cfg);
 
         __deployValuationStack(d, _cfg);
         __preMint(d, _cfg);
@@ -318,9 +344,9 @@ contract SharesDeployer {
             shares.addAdmin(_cfg.admins[i]);
         }
 
-        shares.transferOwnership(_cfg.owner);
+        shares.transferOwnership(_cfg.nominatedOwner);
 
-        emit VaultDeployed({deployed: d, owner: _cfg.owner});
+        emit VaultDeployed({deployed: d, nominatedOwner: _cfg.nominatedOwner});
 
         return d.shares;
     }
@@ -330,7 +356,8 @@ contract SharesDeployer {
     //==================================================================================================================
 
     function __validate(DeployConfig calldata _cfg) internal pure {
-        require(_cfg.owner != address(0), SharesDeployer__OwnerCannotBeZero());
+        require(_cfg.initialOwner != address(0), SharesDeployer__InitialOwnerCannotBeZero());
+        require(_cfg.nominatedOwner != address(0), SharesDeployer__NominatedOwnerCannotBeZero());
         require(
             !_cfg.components.managementFee.deploy || _cfg.components.feeHandler.deploy,
             SharesDeployer__ManagementFeeRequiresFeeHandler()
@@ -352,43 +379,61 @@ contract SharesDeployer {
             SharesDeployer__PreMintRequiresValuationHandler()
         );
 
+        __validateSharedAddressListDefinitions(_cfg.sharedAddressLists);
+
+        uint256 sharedListCount = _cfg.sharedAddressLists.length;
+
         QueueDepositHandlerConfig[] calldata queueDepositHandlers = _cfg.components.queueDepositHandlers;
         for (uint256 i; i < queueDepositHandlers.length; i++) {
-            __validateQueueDepositHandler(queueDepositHandlers[i]);
+            __validateQueueDepositHandler(queueDepositHandlers[i], sharedListCount);
         }
 
         SyncDepositHandlerConfig[] calldata syncDepositHandlers = _cfg.components.syncDepositHandlers;
         for (uint256 i; i < syncDepositHandlers.length; i++) {
-            __validateSyncDepositHandler(syncDepositHandlers[i]);
+            __validateSyncDepositHandler(syncDepositHandlers[i], sharedListCount);
         }
 
-        __validateTransferValidator(_cfg.transferValidator);
+        __validateTransferValidator(_cfg.transferValidator, sharedListCount);
     }
 
-    function __validateTransferValidator(TransferValidatorConfig calldata _c) internal pure {
+    function __validateSharedAddressListDefinitions(SharedAddressListDefinition[] calldata _defs) internal pure {
+        for (uint256 i; i < _defs.length; i++) {
+            SharedAddressListDefinition calldata def = _defs[i];
+            if (def.kind == SharedAddressListKind.Ownable) {
+                require(def.ownableListOwner != address(0), SharesDeployer__OwnableAddressListOwnerCannotBeZero());
+            }
+        }
+    }
+
+    function __validateTransferValidator(TransferValidatorConfig calldata _c, uint256 _sharedListCount) internal pure {
         if (_c.source == TransferValidatorSource.Existing) {
             require(_c.existing != address(0), SharesDeployer__TransferValidatorExistingCannotBeZero());
         } else if (_c.source == TransferValidatorSource.DeployAddressLists) {
-            __validateValidatorListConfig(_c.recipientList);
-            __validateValidatorListConfig(_c.senderList);
+            __validateValidatorListConfig(_c.recipientList, _sharedListCount);
+            __validateValidatorListConfig(_c.senderList, _sharedListCount);
         }
     }
 
-    function __validateValidatorListConfig(AddressListsValidatorListConfig calldata _c) internal pure {
+    function __validateValidatorListConfig(AddressListsValidatorListConfig calldata _c, uint256 _sharedListCount)
+        internal
+        pure
+    {
         if (_c.listType == AddressListsSharesTransferValidator.ListType.None) {
             require(_c.externalListSource == ExternalListSource.None, SharesDeployer__ExternalListSourceNotAllowed());
-            require(_c.seededAddresses.length == 0, SharesDeployer__SeedNotAllowedWithoutAllowlist());
         } else {
             __validateExternalListConfig({
                 _source: _c.externalListSource,
                 _existing: _c.externalListExisting,
-                _ownableListOwner: _c.externalListOwner,
-                _seedLength: _c.seededAddresses.length
+                _sharedIndex: _c.sharedAddressListIndex,
+                _sharedDefinitionsLength: _sharedListCount
             });
         }
     }
 
-    function __validateQueueDepositHandler(QueueDepositHandlerConfig calldata _c) internal pure {
+    function __validateQueueDepositHandler(QueueDepositHandlerConfig calldata _c, uint256 _sharedListCount)
+        internal
+        pure
+    {
         if (_c.restriction == ERC7540LikeDepositQueue.DepositRestriction.None) {
             require(_c.externalListSource == ExternalListSource.None, SharesDeployer__ExternalListSourceNotAllowed());
             require(_c.allowedDepositors.length == 0, SharesDeployer__SeedNotAllowedWithoutAllowlist());
@@ -399,21 +444,23 @@ contract SharesDeployer {
             __validateExternalListConfig({
                 _source: _c.externalListSource,
                 _existing: _c.externalListExisting,
-                _ownableListOwner: _c.externalListOwner,
-                _seedLength: _c.allowedDepositors.length
+                _sharedIndex: _c.sharedAddressListIndex,
+                _sharedDefinitionsLength: _sharedListCount
             });
+            require(_c.allowedDepositors.length == 0, SharesDeployer__SeedNotAllowedForExternalList());
         }
     }
 
-    function __validateSyncDepositHandler(SyncDepositHandlerConfig calldata _c) internal pure {
-        if (_c.depositorAllowlistSource == ExternalListSource.None) {
-            require(_c.allowedDepositors.length == 0, SharesDeployer__SeedNotAllowedWithoutAllowlist());
-        } else {
+    function __validateSyncDepositHandler(SyncDepositHandlerConfig calldata _c, uint256 _sharedListCount)
+        internal
+        pure
+    {
+        if (_c.depositorAllowlistSource != ExternalListSource.None) {
             __validateExternalListConfig({
                 _source: _c.depositorAllowlistSource,
                 _existing: _c.depositorAllowlistExisting,
-                _ownableListOwner: _c.depositorAllowlistOwner,
-                _seedLength: _c.allowedDepositors.length
+                _sharedIndex: _c.sharedAddressListIndex,
+                _sharedDefinitionsLength: _sharedListCount
             });
         }
     }
@@ -421,17 +468,42 @@ contract SharesDeployer {
     function __validateExternalListConfig(
         ExternalListSource _source,
         address _existing,
-        address _ownableListOwner,
-        uint256 _seedLength
+        uint256 _sharedIndex,
+        uint256 _sharedDefinitionsLength
     ) internal pure {
         require(_source != ExternalListSource.None, SharesDeployer__ExternalListSourceRequired());
 
         if (_source == ExternalListSource.Existing) {
             require(_existing != address(0), SharesDeployer__ExternalListExistingCannotBeZero());
-            require(_seedLength == 0, SharesDeployer__SeedNotAllowedForExistingList());
-        } else if (_source == ExternalListSource.DeployOwnableAddressList) {
-            require(_ownableListOwner != address(0), SharesDeployer__OwnableAddressListOwnerCannotBeZero());
+        } else {
+            // SharedAddressList
+            require(_sharedIndex < _sharedDefinitionsLength, SharesDeployer__SharedAddressListIndexOutOfBounds());
         }
+    }
+
+    function __deploySharedAddressLists(Deployed memory _d, DeployConfig calldata _cfg)
+        internal
+        returns (address[] memory lists_)
+    {
+        SharedAddressListDefinition[] calldata defs = _cfg.sharedAddressLists;
+        lists_ = new address[](defs.length);
+        for (uint256 i; i < defs.length; i++) {
+            SharedAddressListDefinition calldata def = defs[i];
+            if (def.kind == SharedAddressListKind.SharesOwned) {
+                lists_[i] = ComponentBeaconFactory(SHARES_OWNED_ADDRESS_LIST_FACTORY).deployProxy(_d.shares, "");
+                if (def.seededAddresses.length > 0) {
+                    AddressListBase(lists_[i]).addToList(def.seededAddresses);
+                }
+            } else {
+                lists_[i] = BeaconFactory(OWNABLE_ADDRESS_LIST_FACTORY)
+                    .deployProxy(abi.encodeCall(OwnableAddressList.init, (address(this))));
+                if (def.seededAddresses.length > 0) {
+                    AddressListBase(lists_[i]).addToList(def.seededAddresses);
+                }
+                OwnableAddressList(lists_[i]).transferOwnership(def.ownableListOwner);
+            }
+        }
+        return lists_;
     }
 
     //==================================================================================================================
@@ -555,6 +627,7 @@ contract SharesDeployer {
         address[] memory deployed = new address[](cfgs.length);
         address[] memory allowlists = new address[](cfgs.length);
         Shares shares = Shares(_d.shares);
+        address[] memory sharedCatalog = _d.sharedAddressLists;
 
         for (uint256 i; i < cfgs.length; i++) {
             QueueDepositHandlerConfig calldata c = cfgs[i];
@@ -570,11 +643,10 @@ contract SharesDeployer {
                 }
             } else if (c.restriction == ERC7540LikeDepositQueue.DepositRestriction.ControllerAllowlistExternal) {
                 address list = __resolveExternalAllowlist({
-                    _shares: _d.shares,
                     _source: c.externalListSource,
                     _existing: c.externalListExisting,
-                    _ownableListOwner: c.externalListOwner,
-                    _allowedDepositors: c.allowedDepositors
+                    _sharedCatalog: sharedCatalog,
+                    _sharedIndex: c.sharedAddressListIndex
                 });
                 q.setDepositControllerExternalAllowlist(list);
                 q.setDepositRestriction(c.restriction);
@@ -598,6 +670,7 @@ contract SharesDeployer {
         address[] memory deployed = new address[](cfgs.length);
         address[] memory allowlists = new address[](cfgs.length);
         Shares shares = Shares(_d.shares);
+        address[] memory sharedCatalog = _d.sharedAddressLists;
 
         for (uint256 i; i < cfgs.length; i++) {
             SyncDepositHandlerConfig calldata c = cfgs[i];
@@ -608,11 +681,10 @@ contract SharesDeployer {
 
             if (c.depositorAllowlistSource != ExternalListSource.None) {
                 address list = __resolveExternalAllowlist({
-                    _shares: _d.shares,
                     _source: c.depositorAllowlistSource,
                     _existing: c.depositorAllowlistExisting,
-                    _ownableListOwner: c.depositorAllowlistOwner,
-                    _allowedDepositors: c.allowedDepositors
+                    _sharedCatalog: sharedCatalog,
+                    _sharedIndex: c.sharedAddressListIndex
                 });
                 h.setDepositorAllowlist(list);
                 allowlists[i] = list;
@@ -633,36 +705,20 @@ contract SharesDeployer {
     // Internal: external allowlist resolution
     //==================================================================================================================
 
-    /// @dev Resolves an `IAddressList` based on the given source. Deploys + seeds when the source
-    /// requests a fresh deploy. For `Existing` returns the provided address as-is. Caller must
-    /// have already validated the inputs via `__validateExternalListConfig`.
+    /// @dev Resolves an `IAddressList` address based on the given source. For `Existing` returns
+    /// the provided address as-is. For `SharedAddressList` returns `_sharedCatalog[_sharedIndex]`.
+    /// Caller must have already validated the inputs via `__validateExternalListConfig`.
     function __resolveExternalAllowlist(
-        address _shares,
         ExternalListSource _source,
         address _existing,
-        address _ownableListOwner,
-        address[] calldata _allowedDepositors
-    ) internal returns (address list_) {
-        if (_source == ExternalListSource.Existing) {
-            return _existing;
+        address[] memory _sharedCatalog,
+        uint256 _sharedIndex
+    ) internal pure returns (address) {
+        if (_source == ExternalListSource.SharedAddressList) {
+            return _sharedCatalog[_sharedIndex];
         }
-
-        if (_source == ExternalListSource.DeploySharesOwnedAddressList) {
-            list_ = ComponentBeaconFactory(SHARES_OWNED_ADDRESS_LIST_FACTORY).deployProxy(_shares, "");
-            if (_allowedDepositors.length > 0) {
-                AddressListBase(list_).addToList(_allowedDepositors);
-            }
-            return list_;
-        }
-
-        // DeployOwnableAddressList: SharesDeployer initializes itself as owner so it can seed,
-        // then transfers ownership to the configured owner.
-        list_ = BeaconFactory(OWNABLE_ADDRESS_LIST_FACTORY)
-            .deployProxy(abi.encodeCall(OwnableAddressList.init, (address(this))));
-        if (_allowedDepositors.length > 0) {
-            AddressListBase(list_).addToList(_allowedDepositors);
-        }
-        OwnableAddressList(list_).transferOwnership(_ownableListOwner);
+        // ExternalListSource.Existing (None is handled by callers)
+        return _existing;
     }
 
     //==================================================================================================================
@@ -687,30 +743,30 @@ contract SharesDeployer {
         );
         _d.transferValidator = address(validator);
 
+        address[] memory sharedCatalog = _d.sharedAddressLists;
         _d.transferValidatorRecipientList = __applyValidatorListConfig({
-            _shares: _d.shares, _validator: validator, _isRecipient: true, _c: vc.recipientList
+            _validator: validator, _isRecipient: true, _c: vc.recipientList, _sharedCatalog: sharedCatalog
         });
         _d.transferValidatorSenderList = __applyValidatorListConfig({
-            _shares: _d.shares, _validator: validator, _isRecipient: false, _c: vc.senderList
+            _validator: validator, _isRecipient: false, _c: vc.senderList, _sharedCatalog: sharedCatalog
         });
     }
 
     function __applyValidatorListConfig(
-        address _shares,
         AddressListsSharesTransferValidator _validator,
         bool _isRecipient,
-        AddressListsValidatorListConfig calldata _c
+        AddressListsValidatorListConfig calldata _c,
+        address[] memory _sharedCatalog
     ) internal returns (address list_) {
         if (_c.listType == AddressListsSharesTransferValidator.ListType.None) {
             return address(0);
         }
 
         list_ = __resolveExternalAllowlist({
-            _shares: _shares,
             _source: _c.externalListSource,
             _existing: _c.externalListExisting,
-            _ownableListOwner: _c.externalListOwner,
-            _allowedDepositors: _c.seededAddresses
+            _sharedCatalog: _sharedCatalog,
+            _sharedIndex: _c.sharedAddressListIndex
         });
 
         if (_isRecipient) {

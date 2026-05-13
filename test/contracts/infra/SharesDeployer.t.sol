@@ -129,7 +129,8 @@ contract SharesDeployerTest is Test {
 
     function __minimalConfig() internal view returns (SharesDeployer.DeployConfig memory cfg) {
         cfg.shares = SharesDeployer.SharesConfig({name: SHARES_NAME, symbol: SHARES_SYMBOL, valueAsset: VALUE_ASSET});
-        cfg.owner = vaultOwner;
+        cfg.initialOwner = address(deployer);
+        cfg.nominatedOwner = vaultOwner;
     }
 
     function __fullConfig() internal view returns (SharesDeployer.DeployConfig memory cfg) {
@@ -184,7 +185,7 @@ contract SharesDeployerTest is Test {
             restriction: ERC7540LikeDepositQueue.DepositRestriction.None,
             externalListSource: SharesDeployer.ExternalListSource.None,
             externalListExisting: address(0),
-            externalListOwner: address(0),
+            sharedAddressListIndex: 0,
             allowedDepositors: new address[](0)
         });
 
@@ -194,8 +195,7 @@ contract SharesDeployerTest is Test {
             maxSharePriceStaleness: 600,
             depositorAllowlistSource: SharesDeployer.ExternalListSource.Existing,
             depositorAllowlistExisting: depositorAllowlist,
-            depositorAllowlistOwner: address(0),
-            allowedDepositors: new address[](0)
+            sharedAddressListIndex: 0
         });
 
         cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](1);
@@ -261,6 +261,107 @@ contract SharesDeployerTest is Test {
     }
 
     //==================================================================================================================
+    // VaultDeployed event
+    //==================================================================================================================
+
+    function test_deploy_emitsVaultDeployedEvent_withCorrectDeployedStruct() public {
+        // Start from fullConfig (touches almost every Deployed field), then add a shared address
+        // list to exercise that field as well
+        SharesDeployer.DeployConfig memory cfg = __fullConfig();
+        address[] memory seed = new address[](1);
+        seed[0] = makeAddr("vaultDeployedEventSeed");
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned, ownableListOwner: address(0), seededAddresses: seed
+        });
+
+        vm.recordLogs();
+        address sharesAddr = deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        (SharesDeployer.Deployed memory d, address nominated) = __findVaultDeployedEvent(logs);
+
+        assertEq(d.shares, sharesAddr, "event.shares");
+        __assertVaultDeployed_singleFields(d, logs);
+        __assertVaultDeployed_arrayFields(d, logs);
+
+        assertEq(d.transferValidator, validator, "event.transferValidator (existing)");
+        assertEq(d.transferValidatorRecipientList, address(0), "event.transferValidatorRecipientList");
+        assertEq(d.transferValidatorSenderList, address(0), "event.transferValidatorSenderList");
+
+        assertEq(nominated, cfg.nominatedOwner, "event.nominatedOwner");
+    }
+
+    function __findVaultDeployedEvent(Vm.Log[] memory _logs)
+        internal
+        view
+        returns (SharesDeployer.Deployed memory d_, address nominated_)
+    {
+        for (uint256 i; i < _logs.length; i++) {
+            if (_logs[i].emitter == address(deployer)) {
+                (d_, nominated_) = abi.decode(_logs[i].data, (SharesDeployer.Deployed, address));
+                return (d_, nominated_);
+            }
+        }
+        revert("VaultDeployed not emitted by deployer");
+    }
+
+    function __assertVaultDeployed_singleFields(SharesDeployer.Deployed memory _d, Vm.Log[] memory _logs)
+        internal
+        view
+    {
+        assertEq(_d.feeHandler, __collectProxiesFromFactory(_logs, address(feeHandlerFactory))[0], "feeHandler");
+        assertEq(
+            _d.valuationHandler,
+            __collectProxiesFromFactory(_logs, address(valuationHandlerFactory))[0],
+            "valuationHandler"
+        );
+        assertEq(
+            _d.managementFeeTracker,
+            __collectProxiesFromFactory(_logs, address(managementFeeTrackerFactory))[0],
+            "managementFeeTracker"
+        );
+        assertEq(
+            _d.performanceFeeTracker,
+            __collectProxiesFromFactory(_logs, address(performanceFeeTrackerFactory))[0],
+            "performanceFeeTracker"
+        );
+        assertEq(
+            _d.accountERC20Tracker,
+            __collectProxiesFromFactory(_logs, address(accountERC20TrackerFactory))[0],
+            "accountERC20Tracker"
+        );
+        assertEq(
+            _d.linearCreditDebtTracker,
+            __collectProxiesFromFactory(_logs, address(linearCreditDebtTrackerFactory))[0],
+            "linearCreditDebtTracker"
+        );
+    }
+
+    function __assertVaultDeployed_arrayFields(SharesDeployer.Deployed memory _d, Vm.Log[] memory _logs) internal view {
+        address[] memory queues = __collectProxiesFromFactory(_logs, address(depositQueueFactory));
+        assertEq(_d.queueDepositHandlers.length, queues.length, "queue count");
+        assertEq(_d.queueDepositHandlers[0], queues[0], "queue addr");
+        // fullConfig uses Restriction.None for the queue, so there's no external allowlist
+        assertEq(_d.queueDepositHandlerAllowlists.length, 1, "queue allowlists len");
+        assertEq(_d.queueDepositHandlerAllowlists[0], address(0), "queue allowlist is unset");
+
+        address[] memory syncs = __collectProxiesFromFactory(_logs, address(syncDepositHandlerFactory));
+        assertEq(_d.syncDepositHandlers.length, syncs.length, "sync count");
+        assertEq(_d.syncDepositHandlers[0], syncs[0], "sync addr");
+        assertEq(_d.syncDepositHandlerAllowlists.length, 1, "sync allowlists len");
+        assertEq(_d.syncDepositHandlerAllowlists[0], depositorAllowlist, "sync allowlist (existing)");
+
+        address[] memory redeems = __collectProxiesFromFactory(_logs, address(redeemQueueFactory));
+        assertEq(_d.redeemHandlers.length, redeems.length, "redeem count");
+        assertEq(_d.redeemHandlers[0], redeems[0], "redeem addr");
+
+        address[] memory sharedLists = __collectProxiesFromFactory(_logs, address(sharesOwnedAddressListFactory));
+        assertEq(_d.sharedAddressLists.length, sharedLists.length, "shared list count");
+        assertEq(_d.sharedAddressLists[0], sharedLists[0], "shared list addr");
+    }
+
+    //==================================================================================================================
     // Minimal config
     //==================================================================================================================
 
@@ -317,11 +418,19 @@ contract SharesDeployerTest is Test {
     // Validation reverts
     //==================================================================================================================
 
-    function test_deploy_revertsOn_zeroOwner() public {
+    function test_deploy_revertsOn_zeroInitialOwner() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
-        cfg.owner = address(0);
+        cfg.initialOwner = address(0);
 
-        vm.expectRevert(SharesDeployer.SharesDeployer__OwnerCannotBeZero.selector);
+        vm.expectRevert(SharesDeployer.SharesDeployer__InitialOwnerCannotBeZero.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_zeroNominatedOwner() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.nominatedOwner = address(0);
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__NominatedOwnerCannotBeZero.selector);
         deployer.deploy(cfg);
     }
 
@@ -430,16 +539,21 @@ contract SharesDeployerTest is Test {
         assertFalse(q.isInDepositControllerInternalAllowlist(makeAddr("unrelated")), "unrelated stays out");
     }
 
-    function test_deploy_depositRestriction_externalAllowlist_deploySharesOwned_seeded() public {
+    function test_deploy_depositRestriction_externalAllowlist_sharedSharesOwned_seeded() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         address[] memory seed = new address[](1);
         seed[0] = makeAddr("controllerA");
 
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned, ownableListOwner: address(0), seededAddresses: seed
+        });
+
         cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
         SharesDeployer.QueueDepositHandlerConfig memory qc =
             __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.ControllerAllowlistExternal);
-        qc.externalListSource = SharesDeployer.ExternalListSource.DeploySharesOwnedAddressList;
-        qc.allowedDepositors = seed;
+        qc.externalListSource = SharesDeployer.ExternalListSource.SharedAddressList;
+        qc.sharedAddressListIndex = 0;
         cfg.components.queueDepositHandlers[0] = qc;
 
         vm.recordLogs();
@@ -451,22 +565,26 @@ contract SharesDeployerTest is Test {
         assertEq(lists.length, 1, "list deployed");
 
         ERC7540LikeDepositQueue q = ERC7540LikeDepositQueue(deposits[0]);
-        assertEq(address(q.getDepositControllerExternalAllowlist()), lists[0], "queue points to fresh list");
+        assertEq(address(q.getDepositControllerExternalAllowlist()), lists[0], "queue points to shared list");
         assertTrue(IAddressList(lists[0]).isInList(seed[0]), "seeded");
     }
 
-    function test_deploy_depositRestriction_externalAllowlist_deployOwnable_seeded() public {
+    function test_deploy_depositRestriction_externalAllowlist_sharedOwnable_seeded() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         address listOwner = makeAddr("listOwner");
         address[] memory seed = new address[](1);
         seed[0] = makeAddr("controllerA");
 
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable, ownableListOwner: listOwner, seededAddresses: seed
+        });
+
         cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
         SharesDeployer.QueueDepositHandlerConfig memory qc =
             __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.ControllerAllowlistExternal);
-        qc.externalListSource = SharesDeployer.ExternalListSource.DeployOwnableAddressList;
-        qc.externalListOwner = listOwner;
-        qc.allowedDepositors = seed;
+        qc.externalListSource = SharesDeployer.ExternalListSource.SharedAddressList;
+        qc.sharedAddressListIndex = 0;
         cfg.components.queueDepositHandlers[0] = qc;
 
         vm.recordLogs();
@@ -478,7 +596,7 @@ contract SharesDeployerTest is Test {
         assertEq(lists.length, 1, "list deployed");
 
         ERC7540LikeDepositQueue q = ERC7540LikeDepositQueue(deposits[0]);
-        assertEq(address(q.getDepositControllerExternalAllowlist()), lists[0], "queue points to fresh list");
+        assertEq(address(q.getDepositControllerExternalAllowlist()), lists[0], "queue points to shared list");
         assertTrue(IAddressList(lists[0]).isInList(seed[0]), "seeded");
         assertEq(OwnableAddressList(lists[0]).owner(), listOwner, "ownership transferred");
     }
@@ -487,16 +605,21 @@ contract SharesDeployerTest is Test {
     // Sync deposit handler allowlist
     //==================================================================================================================
 
-    function test_deploy_syncDepositHandler_deploySharesOwned_seeded() public {
+    function test_deploy_syncDepositHandler_sharedSharesOwned_seeded() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         address[] memory seed = new address[](2);
         seed[0] = makeAddr("depositorA");
         seed[1] = makeAddr("depositorB");
 
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned, ownableListOwner: address(0), seededAddresses: seed
+        });
+
         cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
         SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(usdc), 0);
-        sc.depositorAllowlistSource = SharesDeployer.ExternalListSource.DeploySharesOwnedAddressList;
-        sc.allowedDepositors = seed;
+        sc.depositorAllowlistSource = SharesDeployer.ExternalListSource.SharedAddressList;
+        sc.sharedAddressListIndex = 0;
         cfg.components.syncDepositHandlers[0] = sc;
 
         vm.recordLogs();
@@ -508,22 +631,26 @@ contract SharesDeployerTest is Test {
         assertEq(lists.length, 1, "list deployed");
 
         SyncDepositHandler sync = SyncDepositHandler(syncs[0]);
-        assertEq(sync.getDepositorAllowlist(), lists[0], "sync points to fresh list");
+        assertEq(sync.getDepositorAllowlist(), lists[0], "sync points to shared list");
         assertTrue(IAddressList(lists[0]).isInList(seed[0]), "seed A");
         assertTrue(IAddressList(lists[0]).isInList(seed[1]), "seed B");
     }
 
-    function test_deploy_syncDepositHandler_deployOwnable_seeded() public {
+    function test_deploy_syncDepositHandler_sharedOwnable_seeded() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         address listOwner = makeAddr("listOwner");
         address[] memory seed = new address[](1);
         seed[0] = makeAddr("depositorA");
 
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable, ownableListOwner: listOwner, seededAddresses: seed
+        });
+
         cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
         SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(weth), 0);
-        sc.depositorAllowlistSource = SharesDeployer.ExternalListSource.DeployOwnableAddressList;
-        sc.depositorAllowlistOwner = listOwner;
-        sc.allowedDepositors = seed;
+        sc.depositorAllowlistSource = SharesDeployer.ExternalListSource.SharedAddressList;
+        sc.sharedAddressListIndex = 0;
         cfg.components.syncDepositHandlers[0] = sc;
 
         vm.recordLogs();
@@ -535,7 +662,7 @@ contract SharesDeployerTest is Test {
         assertEq(lists.length, 1, "list deployed");
 
         SyncDepositHandler sync = SyncDepositHandler(syncs[0]);
-        assertEq(sync.getDepositorAllowlist(), lists[0], "sync points to fresh list");
+        assertEq(sync.getDepositorAllowlist(), lists[0], "sync points to shared list");
         assertTrue(IAddressList(lists[0]).isInList(seed[0]), "seeded");
         assertEq(OwnableAddressList(lists[0]).owner(), listOwner, "ownership transferred");
     }
@@ -556,18 +683,6 @@ contract SharesDeployerTest is Test {
         deployer.deploy(cfg);
     }
 
-    function test_deploy_revertsOn_queueExternalSource_ownableZeroOwner() public {
-        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
-        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
-        SharesDeployer.QueueDepositHandlerConfig memory qc =
-            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.ControllerAllowlistExternal);
-        qc.externalListSource = SharesDeployer.ExternalListSource.DeployOwnableAddressList;
-        cfg.components.queueDepositHandlers[0] = qc;
-
-        vm.expectRevert(SharesDeployer.SharesDeployer__OwnableAddressListOwnerCannotBeZero.selector);
-        deployer.deploy(cfg);
-    }
-
     function test_deploy_revertsOn_queueExternalRestriction_missingSource() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
@@ -583,7 +698,7 @@ contract SharesDeployerTest is Test {
         cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
         SharesDeployer.QueueDepositHandlerConfig memory qc =
             __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.ControllerAllowlistInternal);
-        qc.externalListSource = SharesDeployer.ExternalListSource.DeploySharesOwnedAddressList;
+        qc.externalListSource = SharesDeployer.ExternalListSource.SharedAddressList;
         cfg.components.queueDepositHandlers[0] = qc;
 
         vm.expectRevert(SharesDeployer.SharesDeployer__ExternalListSourceNotAllowed.selector);
@@ -604,6 +719,19 @@ contract SharesDeployerTest is Test {
         deployer.deploy(cfg);
     }
 
+    function test_deploy_revertsOn_queueNoneRestriction_externalSourceSet() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
+        SharesDeployer.QueueDepositHandlerConfig memory qc =
+            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.None);
+        qc.externalListSource = SharesDeployer.ExternalListSource.Existing;
+        qc.externalListExisting = makeAddr("existing");
+        cfg.components.queueDepositHandlers[0] = qc;
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__ExternalListSourceNotAllowed.selector);
+        deployer.deploy(cfg);
+    }
+
     function test_deploy_revertsOn_queueExistingExternal_seedNotAllowed() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         address[] memory seed = new address[](1);
@@ -616,46 +744,31 @@ contract SharesDeployerTest is Test {
         qc.allowedDepositors = seed;
         cfg.components.queueDepositHandlers[0] = qc;
 
-        vm.expectRevert(SharesDeployer.SharesDeployer__SeedNotAllowedForExistingList.selector);
+        vm.expectRevert(SharesDeployer.SharesDeployer__SeedNotAllowedForExternalList.selector);
         deployer.deploy(cfg);
     }
 
-    function test_deploy_revertsOn_syncExistingSource_seedNotAllowed() public {
+    function test_deploy_revertsOn_queueSharedExternal_seedNotAllowed() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned,
+            ownableListOwner: address(0),
+            seededAddresses: new address[](0)
+        });
+
         address[] memory seed = new address[](1);
-        seed[0] = makeAddr("depositorA");
-        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
-        SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(usdc), 0);
-        sc.depositorAllowlistSource = SharesDeployer.ExternalListSource.Existing;
-        sc.depositorAllowlistExisting = makeAddr("existing");
-        sc.allowedDepositors = seed;
-        cfg.components.syncDepositHandlers[0] = sc;
+        seed[0] = makeAddr("controllerA");
+        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
+        SharesDeployer.QueueDepositHandlerConfig memory qc =
+            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.ControllerAllowlistExternal);
+        qc.externalListSource = SharesDeployer.ExternalListSource.SharedAddressList;
+        qc.sharedAddressListIndex = 0;
+        qc.allowedDepositors = seed;
+        cfg.components.queueDepositHandlers[0] = qc;
 
-        vm.expectRevert(SharesDeployer.SharesDeployer__SeedNotAllowedForExistingList.selector);
-        deployer.deploy(cfg);
-    }
-
-    function test_deploy_revertsOn_syncOwnableSource_zeroOwner() public {
-        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
-        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
-        SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(usdc), 0);
-        sc.depositorAllowlistSource = SharesDeployer.ExternalListSource.DeployOwnableAddressList;
-        cfg.components.syncDepositHandlers[0] = sc;
-
-        vm.expectRevert(SharesDeployer.SharesDeployer__OwnableAddressListOwnerCannotBeZero.selector);
-        deployer.deploy(cfg);
-    }
-
-    function test_deploy_revertsOn_syncNoneSource_seedNotAllowed() public {
-        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
-        address[] memory seed = new address[](1);
-        seed[0] = makeAddr("depositorA");
-        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
-        SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(usdc), 0);
-        sc.allowedDepositors = seed;
-        cfg.components.syncDepositHandlers[0] = sc;
-
-        vm.expectRevert(SharesDeployer.SharesDeployer__SeedNotAllowedWithoutAllowlist.selector);
+        vm.expectRevert(SharesDeployer.SharesDeployer__SeedNotAllowedForExternalList.selector);
         deployer.deploy(cfg);
     }
 
@@ -791,21 +904,25 @@ contract SharesDeployerTest is Test {
         assertEq(shares.getSharesTransferValidator(), address(0));
     }
 
-    function test_deploy_transferValidator_deployAddressLists_recipientAllow_seeded() public {
+    function test_deploy_transferValidator_deployAddressLists_recipientAllow_sharedSharesOwned_seeded() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         address[] memory seed = new address[](2);
         seed[0] = makeAddr("allowedRecipientA");
         seed[1] = makeAddr("allowedRecipientB");
+
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned, ownableListOwner: address(0), seededAddresses: seed
+        });
 
         cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
             source: SharesDeployer.TransferValidatorSource.DeployAddressLists,
             existing: address(0),
             recipientList: SharesDeployer.AddressListsValidatorListConfig({
                 listType: AddressListsSharesTransferValidator.ListType.Allow,
-                externalListSource: SharesDeployer.ExternalListSource.DeploySharesOwnedAddressList,
+                externalListSource: SharesDeployer.ExternalListSource.SharedAddressList,
                 externalListExisting: address(0),
-                externalListOwner: address(0),
-                seededAddresses: seed
+                sharedAddressListIndex: 0
             }),
             senderList: __validatorListNone()
         });
@@ -833,12 +950,19 @@ contract SharesDeployerTest is Test {
         assertTrue(IAddressList(lists[0]).isInList(seed[1]), "seed B");
     }
 
-    function test_deploy_transferValidator_deployAddressLists_bothLists_existingAndOwnable() public {
+    function test_deploy_transferValidator_deployAddressLists_bothLists_existingAndSharedOwnable() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         address recipientExisting = makeAddr("recipientListExisting");
         address senderListOwner = makeAddr("senderListOwner");
         address[] memory senderSeed = new address[](1);
         senderSeed[0] = makeAddr("blockedSender");
+
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable,
+            ownableListOwner: senderListOwner,
+            seededAddresses: senderSeed
+        });
 
         cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
             source: SharesDeployer.TransferValidatorSource.DeployAddressLists,
@@ -847,15 +971,13 @@ contract SharesDeployerTest is Test {
                 listType: AddressListsSharesTransferValidator.ListType.Allow,
                 externalListSource: SharesDeployer.ExternalListSource.Existing,
                 externalListExisting: recipientExisting,
-                externalListOwner: address(0),
-                seededAddresses: new address[](0)
+                sharedAddressListIndex: 0
             }),
             senderList: SharesDeployer.AddressListsValidatorListConfig({
                 listType: AddressListsSharesTransferValidator.ListType.Disallow,
-                externalListSource: SharesDeployer.ExternalListSource.DeployOwnableAddressList,
+                externalListSource: SharesDeployer.ExternalListSource.SharedAddressList,
                 externalListExisting: address(0),
-                externalListOwner: senderListOwner,
-                seededAddresses: senderSeed
+                sharedAddressListIndex: 0
             })
         });
 
@@ -871,7 +993,7 @@ contract SharesDeployerTest is Test {
 
         AddressListsSharesTransferValidator deployedValidator = AddressListsSharesTransferValidator(validators[0]);
         assertEq(deployedValidator.getRecipientList(), recipientExisting, "recipient = existing");
-        assertEq(deployedValidator.getSenderList(), ownables[0], "sender = fresh ownable");
+        assertEq(deployedValidator.getSenderList(), ownables[0], "sender = shared ownable");
         assertEq(
             uint8(deployedValidator.getSenderListType()),
             uint8(AddressListsSharesTransferValidator.ListType.Disallow),
@@ -879,6 +1001,77 @@ contract SharesDeployerTest is Test {
         );
         assertTrue(IAddressList(ownables[0]).isInList(senderSeed[0]), "sender seed");
         assertEq(OwnableAddressList(ownables[0]).owner(), senderListOwner, "sender list ownership");
+    }
+
+    function test_deploy_transferValidator_deployAddressLists_bothLists_sharedRecipientAndSender() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        address ownableListOwner = makeAddr("senderListOwner");
+
+        address[] memory recipSeed = new address[](2);
+        recipSeed[0] = makeAddr("allowedRecipientA");
+        recipSeed[1] = makeAddr("allowedRecipientB");
+        address[] memory senderSeed = new address[](1);
+        senderSeed[0] = makeAddr("blockedSender");
+
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](2);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned,
+            ownableListOwner: address(0),
+            seededAddresses: recipSeed
+        });
+        cfg.sharedAddressLists[1] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable,
+            ownableListOwner: ownableListOwner,
+            seededAddresses: senderSeed
+        });
+
+        cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
+            source: SharesDeployer.TransferValidatorSource.DeployAddressLists,
+            existing: address(0),
+            recipientList: SharesDeployer.AddressListsValidatorListConfig({
+                listType: AddressListsSharesTransferValidator.ListType.Allow,
+                externalListSource: SharesDeployer.ExternalListSource.SharedAddressList,
+                externalListExisting: address(0),
+                sharedAddressListIndex: 0
+            }),
+            senderList: SharesDeployer.AddressListsValidatorListConfig({
+                listType: AddressListsSharesTransferValidator.ListType.Disallow,
+                externalListSource: SharesDeployer.ExternalListSource.SharedAddressList,
+                externalListExisting: address(0),
+                sharedAddressListIndex: 1
+            })
+        });
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory validators =
+            __collectProxiesFromFactory(logs, address(addressListsSharesTransferValidatorFactory));
+        address[] memory sharesOwnedLists = __collectProxiesFromFactory(logs, address(sharesOwnedAddressListFactory));
+        address[] memory ownableLists = __collectBeaconProxies(logs, address(ownableAddressListFactory));
+        assertEq(validators.length, 1, "validator deployed");
+        assertEq(sharesOwnedLists.length, 1, "recipient list deployed");
+        assertEq(ownableLists.length, 1, "sender list deployed");
+
+        AddressListsSharesTransferValidator v = AddressListsSharesTransferValidator(validators[0]);
+        assertEq(v.getRecipientList(), sharesOwnedLists[0], "recipient = SharesOwned shared list");
+        assertEq(v.getSenderList(), ownableLists[0], "sender = Ownable shared list");
+        assertEq(
+            uint8(v.getRecipientListType()),
+            uint8(AddressListsSharesTransferValidator.ListType.Allow),
+            "recipient list type Allow"
+        );
+        assertEq(
+            uint8(v.getSenderListType()),
+            uint8(AddressListsSharesTransferValidator.ListType.Disallow),
+            "sender list type Disallow"
+        );
+        assertTrue(IAddressList(sharesOwnedLists[0]).isInList(recipSeed[0]), "recipient seed A");
+        assertTrue(IAddressList(sharesOwnedLists[0]).isInList(recipSeed[1]), "recipient seed B");
+        assertTrue(IAddressList(ownableLists[0]).isInList(senderSeed[0]), "sender seed");
+        assertEq(OwnableAddressList(ownableLists[0]).owner(), ownableListOwner, "sender list owner");
+        assertEq(shares.getSharesTransferValidator(), validators[0], "wired on shares");
     }
 
     function test_deploy_revertsOn_transferValidator_existingZero() public {
@@ -894,28 +1087,6 @@ contract SharesDeployerTest is Test {
         deployer.deploy(cfg);
     }
 
-    function test_deploy_revertsOn_transferValidator_listTypeNone_seedNotAllowed() public {
-        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
-        address[] memory seed = new address[](1);
-        seed[0] = makeAddr("seedA");
-
-        cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
-            source: SharesDeployer.TransferValidatorSource.DeployAddressLists,
-            existing: address(0),
-            recipientList: SharesDeployer.AddressListsValidatorListConfig({
-                listType: AddressListsSharesTransferValidator.ListType.None,
-                externalListSource: SharesDeployer.ExternalListSource.None,
-                externalListExisting: address(0),
-                externalListOwner: address(0),
-                seededAddresses: seed
-            }),
-            senderList: __validatorListNone()
-        });
-
-        vm.expectRevert(SharesDeployer.SharesDeployer__SeedNotAllowedWithoutAllowlist.selector);
-        deployer.deploy(cfg);
-    }
-
     function test_deploy_revertsOn_transferValidator_listTypeAllow_missingSource() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
         cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
@@ -925,14 +1096,223 @@ contract SharesDeployerTest is Test {
                 listType: AddressListsSharesTransferValidator.ListType.Allow,
                 externalListSource: SharesDeployer.ExternalListSource.None,
                 externalListExisting: address(0),
-                externalListOwner: address(0),
-                seededAddresses: new address[](0)
+                sharedAddressListIndex: 0
             }),
             senderList: __validatorListNone()
         });
 
         vm.expectRevert(SharesDeployer.SharesDeployer__ExternalListSourceRequired.selector);
         deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_transferValidator_listTypeNone_externalSourceSet() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
+            source: SharesDeployer.TransferValidatorSource.DeployAddressLists,
+            existing: address(0),
+            recipientList: SharesDeployer.AddressListsValidatorListConfig({
+                listType: AddressListsSharesTransferValidator.ListType.None,
+                externalListSource: SharesDeployer.ExternalListSource.Existing,
+                externalListExisting: makeAddr("existing"),
+                sharedAddressListIndex: 0
+            }),
+            senderList: __validatorListNone()
+        });
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__ExternalListSourceNotAllowed.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_sharedAddressList_reusedBySyncAndTransferValidator() public {
+        address listOwner = makeAddr("sharedCatalogListOwner");
+        address seeded = makeAddr("sharedCatalogSeeded");
+
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        address[] memory seed = new address[](1);
+        seed[0] = seeded;
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable, ownableListOwner: listOwner, seededAddresses: seed
+        });
+
+        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
+        cfg.components.syncDepositHandlers[0] = SharesDeployer.SyncDepositHandlerConfig({
+            asset: address(usdc),
+            maxSharePriceStaleness: 0,
+            depositorAllowlistSource: SharesDeployer.ExternalListSource.SharedAddressList,
+            depositorAllowlistExisting: address(0),
+            sharedAddressListIndex: 0
+        });
+
+        cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
+            source: SharesDeployer.TransferValidatorSource.DeployAddressLists,
+            existing: address(0),
+            recipientList: SharesDeployer.AddressListsValidatorListConfig({
+                listType: AddressListsSharesTransferValidator.ListType.Allow,
+                externalListSource: SharesDeployer.ExternalListSource.SharedAddressList,
+                externalListExisting: address(0),
+                sharedAddressListIndex: 0
+            }),
+            senderList: __validatorListNone()
+        });
+
+        vm.recordLogs();
+        address sharesAddr = deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        Shares shares = Shares(sharesAddr);
+
+        address[] memory syncs = __collectProxiesFromFactory(logs, address(syncDepositHandlerFactory));
+        address[] memory validators =
+            __collectProxiesFromFactory(logs, address(addressListsSharesTransferValidatorFactory));
+        assertEq(syncs.length, 1, "sync count");
+        assertEq(validators.length, 1, "validator count");
+
+        SyncDepositHandler sync = SyncDepositHandler(syncs[0]);
+        AddressListsSharesTransferValidator v = AddressListsSharesTransferValidator(validators[0]);
+
+        address syncList = sync.getDepositorAllowlist();
+        address recipientList = v.getRecipientList();
+        assertEq(syncList, recipientList, "same shared list instance");
+        assertTrue(IAddressList(syncList).isInList(seeded), "seed on shared list");
+        assertEq(OwnableAddressList(syncList).owner(), listOwner, "final list owner");
+        assertEq(shares.getSharesTransferValidator(), validators[0], "validator wired");
+    }
+
+    function test_deploy_revertsOn_sharedAddressListIndexOutOfBounds() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned,
+            ownableListOwner: address(0),
+            seededAddresses: new address[](0)
+        });
+        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
+        cfg.components.syncDepositHandlers[0] = SharesDeployer.SyncDepositHandlerConfig({
+            asset: address(usdc),
+            maxSharePriceStaleness: 0,
+            depositorAllowlistSource: SharesDeployer.ExternalListSource.SharedAddressList,
+            depositorAllowlistExisting: address(0),
+            sharedAddressListIndex: 1
+        });
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__SharedAddressListIndexOutOfBounds.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_sharedAddressList_ownableOwnerZero() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        address[] memory seed = new address[](1);
+        seed[0] = makeAddr("wouldBeSeeded");
+
+        // Seed is non-empty to ensure the test would fail loudly if seeding ran before validation.
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](1);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable, ownableListOwner: address(0), seededAddresses: seed
+        });
+
+        vm.recordLogs();
+        vm.expectRevert(SharesDeployer.SharesDeployer__OwnableAddressListOwnerCannotBeZero.selector);
+        deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        // Validation runs before any factory call; no proxies should be deployed
+        address[] memory sharesProxies = __collectBeaconProxies(logs, address(sharesFactory));
+        address[] memory sharesOwnedLists = __collectProxiesFromFactory(logs, address(sharesOwnedAddressListFactory));
+        address[] memory ownableLists = __collectBeaconProxies(logs, address(ownableAddressListFactory));
+        assertEq(sharesProxies.length, 0, "no shares deployed before validation revert");
+        assertEq(sharesOwnedLists.length, 0, "no SharesOwned lists deployed before validation revert");
+        assertEq(ownableLists.length, 0, "no Ownable lists deployed before validation revert");
+    }
+
+    function test_deploy_sharedAddressList_orphan_deployedAndSeededWithoutConsumer() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        address ownableListOwner = makeAddr("orphanOwnableOwner");
+        address[] memory seed = new address[](1);
+        seed[0] = makeAddr("orphanedSeed");
+
+        // Two shared lists declared, but neither is referenced by any consumer
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](2);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned, ownableListOwner: address(0), seededAddresses: seed
+        });
+        cfg.sharedAddressLists[1] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable,
+            ownableListOwner: ownableListOwner,
+            seededAddresses: seed
+        });
+
+        vm.recordLogs();
+        deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory sharesOwnedLists = __collectProxiesFromFactory(logs, address(sharesOwnedAddressListFactory));
+        address[] memory ownableLists = __collectBeaconProxies(logs, address(ownableAddressListFactory));
+        assertEq(sharesOwnedLists.length, 1, "orphan SharesOwned list deployed");
+        assertEq(ownableLists.length, 1, "orphan Ownable list deployed");
+
+        assertTrue(IAddressList(sharesOwnedLists[0]).isInList(seed[0]), "orphan SharesOwned seeded");
+        assertTrue(IAddressList(ownableLists[0]).isInList(seed[0]), "orphan Ownable seeded");
+        assertEq(OwnableAddressList(ownableLists[0]).owner(), ownableListOwner, "orphan Ownable owner");
+    }
+
+    function test_deploy_sharedAddressList_multipleConsumersDifferentIndices() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        address ownableListOwner = makeAddr("ownableListOwner");
+        address[] memory sharesOwnedSeed = new address[](1);
+        sharesOwnedSeed[0] = makeAddr("queueDepositor");
+        address[] memory ownableSeed = new address[](1);
+        ownableSeed[0] = makeAddr("syncDepositor");
+
+        cfg.sharedAddressLists = new SharesDeployer.SharedAddressListDefinition[](2);
+        cfg.sharedAddressLists[0] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.SharesOwned,
+            ownableListOwner: address(0),
+            seededAddresses: sharesOwnedSeed
+        });
+        cfg.sharedAddressLists[1] = SharesDeployer.SharedAddressListDefinition({
+            kind: SharesDeployer.SharedAddressListKind.Ownable,
+            ownableListOwner: ownableListOwner,
+            seededAddresses: ownableSeed
+        });
+
+        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
+        SharesDeployer.QueueDepositHandlerConfig memory qc =
+            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.ControllerAllowlistExternal);
+        qc.externalListSource = SharesDeployer.ExternalListSource.SharedAddressList;
+        qc.sharedAddressListIndex = 0;
+        cfg.components.queueDepositHandlers[0] = qc;
+
+        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
+        SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(usdc), 0);
+        sc.depositorAllowlistSource = SharesDeployer.ExternalListSource.SharedAddressList;
+        sc.sharedAddressListIndex = 1;
+        cfg.components.syncDepositHandlers[0] = sc;
+
+        vm.recordLogs();
+        deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory sharesOwnedLists = __collectProxiesFromFactory(logs, address(sharesOwnedAddressListFactory));
+        address[] memory ownableLists = __collectBeaconProxies(logs, address(ownableAddressListFactory));
+        address[] memory queues = __collectProxiesFromFactory(logs, address(depositQueueFactory));
+        address[] memory syncs = __collectProxiesFromFactory(logs, address(syncDepositHandlerFactory));
+
+        assertEq(sharesOwnedLists.length, 1, "SharesOwned list count");
+        assertEq(ownableLists.length, 1, "Ownable list count");
+
+        // Queue handler points at the SharesOwned list (index 0)
+        assertEq(
+            address(ERC7540LikeDepositQueue(queues[0]).getDepositControllerExternalAllowlist()),
+            sharesOwnedLists[0],
+            "queue allowlist"
+        );
+        assertTrue(IAddressList(sharesOwnedLists[0]).isInList(sharesOwnedSeed[0]), "SharesOwned seed");
+
+        // Sync handler points at the Ownable list (index 1)
+        assertEq(SyncDepositHandler(syncs[0]).getDepositorAllowlist(), ownableLists[0], "sync allowlist");
+        assertTrue(IAddressList(ownableLists[0]).isInList(ownableSeed[0]), "Ownable seed");
+        assertEq(OwnableAddressList(ownableLists[0]).owner(), ownableListOwner, "ownable list owner");
     }
 
     //==================================================================================================================
@@ -950,7 +1330,7 @@ contract SharesDeployerTest is Test {
             restriction: _restriction,
             externalListSource: SharesDeployer.ExternalListSource.None,
             externalListExisting: address(0),
-            externalListOwner: address(0),
+            sharedAddressListIndex: 0,
             allowedDepositors: new address[](0)
         });
     }
@@ -965,8 +1345,7 @@ contract SharesDeployerTest is Test {
             maxSharePriceStaleness: _maxStaleness,
             depositorAllowlistSource: SharesDeployer.ExternalListSource.None,
             depositorAllowlistExisting: address(0),
-            depositorAllowlistOwner: address(0),
-            allowedDepositors: new address[](0)
+            sharedAddressListIndex: 0
         });
     }
 
@@ -975,8 +1354,7 @@ contract SharesDeployerTest is Test {
             listType: AddressListsSharesTransferValidator.ListType.None,
             externalListSource: SharesDeployer.ExternalListSource.None,
             externalListExisting: address(0),
-            externalListOwner: address(0),
-            seededAddresses: new address[](0)
+            sharedAddressListIndex: 0
         });
     }
 
