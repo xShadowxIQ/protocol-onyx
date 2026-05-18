@@ -24,6 +24,10 @@ import {CreWorkflowConsumer} from "src/components/automations/chainlink-cre/CreW
 import {SharesOwnedAddressList} from "src/components/lists/SharesOwnedAddressList.sol";
 import {OwnableAddressList} from "src/infra/lists/address-list/OwnableAddressList.sol";
 import {SyncDepositHandler} from "src/components/issuance/deposit-handlers/SyncDepositHandler.sol";
+import {
+    AddressListsSharesTransferValidator
+} from "src/components/shares-transfer-validators/AddressListsSharesTransferValidator.sol";
+import {SharesDeployer} from "src/infra/deployment/SharesDeployer.sol";
 
 /// @notice Deploys core Onyx protocol contracts to a target network
 ///         and writes their addresses to `deployments/${chainid}.json` for front-end consumption.
@@ -47,6 +51,7 @@ contract DeployProtocol is Script {
         ComponentBeaconFactory creWorkflowConsumerFactory;
         ComponentBeaconFactory sharesOwnedAddressListFactory;
         ComponentBeaconFactory syncDepositHandlerFactory;
+        ComponentBeaconFactory addressListsSharesTransferValidatorFactory;
         Shares shares;
         FeeHandler feeHandler;
         ContinuousFlatRateManagementFeeTracker continuousFlatRateManagementFeeTracker;
@@ -61,6 +66,8 @@ contract DeployProtocol is Script {
         SharesOwnedAddressList sharesOwnedAddressList;
         OwnableAddressList ownableAddressList;
         SyncDepositHandler syncDepositHandler;
+        AddressListsSharesTransferValidator addressListsSharesTransferValidator;
+        SharesDeployer sharesDeployer;
     }
 
     Addrs internal addrs;
@@ -103,6 +110,7 @@ contract DeployProtocol is Script {
         }
         addrs.sharesOwnedAddressListFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
         addrs.syncDepositHandlerFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.addressListsSharesTransferValidatorFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
 
         /* ---------------------------------------------------------------------
          * Implementation contracts
@@ -123,6 +131,7 @@ contract DeployProtocol is Script {
         addrs.sharesOwnedAddressList = new SharesOwnedAddressList();
         addrs.ownableAddressList = new OwnableAddressList();
         addrs.syncDepositHandler = new SyncDepositHandler();
+        addrs.addressListsSharesTransferValidator = new AddressListsSharesTransferValidator();
 
         /* ---------------------------------------------------------------------
          * Set implementations
@@ -147,6 +156,29 @@ contract DeployProtocol is Script {
         addrs.sharesOwnedAddressListFactory.setImplementation(address(addrs.sharesOwnedAddressList));
         addrs.ownableAddressListFactory.setImplementation(address(addrs.ownableAddressList));
         addrs.syncDepositHandlerFactory.setImplementation(address(addrs.syncDepositHandler));
+        addrs.addressListsSharesTransferValidatorFactory
+            .setImplementation(address(addrs.addressListsSharesTransferValidator));
+
+        /* ---------------------------------------------------------------------
+         * Shares deployer
+         * -------------------------------------------------------------------*/
+        addrs.sharesDeployer = new SharesDeployer(
+            SharesDeployer.Factories({
+                sharesFactory: address(addrs.sharesBeaconFactory),
+                feeHandlerFactory: address(addrs.feeHandlerBeaconFactory),
+                valuationHandlerFactory: address(addrs.valuationHandlerBeaconFactory),
+                managementFeeTrackerFactory: address(addrs.continuousFlatRateManagementFeeTrackerBeaconFactory),
+                performanceFeeTrackerFactory: address(addrs.continuousFlatRatePerformanceFeeTrackerBeaconFactory),
+                accountERC20TrackerFactory: address(addrs.accountERC20TrackerFactory),
+                linearCreditDebtTrackerFactory: address(addrs.linearCreditDebtTrackerBeaconFactory),
+                depositQueueFactory: address(addrs.erc7540LikeDepositQueueBeaconFactory),
+                syncDepositHandlerFactory: address(addrs.syncDepositHandlerFactory),
+                redeemQueueFactory: address(addrs.erc7540LikeRedeemQueueBeaconFactory),
+                sharesOwnedAddressListFactory: address(addrs.sharesOwnedAddressListFactory),
+                ownableAddressListFactory: address(addrs.ownableAddressListFactory),
+                addressListsSharesTransferValidatorFactory: address(addrs.addressListsSharesTransferValidatorFactory)
+            })
+        );
 
         vm.stopBroadcast();
 
@@ -180,6 +212,9 @@ contract DeployProtocol is Script {
         vm.serializeAddress(key, "SharesOwnedAddressListFactory", address(addrs.sharesOwnedAddressListFactory));
         vm.serializeAddress(key, "OwnableAddressListFactory", address(addrs.ownableAddressListFactory));
         vm.serializeAddress(key, "SyncDepositHandlerFactory", address(addrs.syncDepositHandlerFactory));
+        vm.serializeAddress(
+            key, "AddressListsSharesTransferValidatorFactory", address(addrs.addressListsSharesTransferValidatorFactory)
+        );
         vm.serializeAddress(key, "SharesLib", address(addrs.shares));
         vm.serializeAddress(key, "FeeHandlerLib", address(addrs.feeHandler));
         vm.serializeAddress(
@@ -199,8 +234,12 @@ contract DeployProtocol is Script {
         vm.serializeAddress(key, "SharesOwnedAddressListLib", address(addrs.sharesOwnedAddressList));
         vm.serializeAddress(key, "OwnableAddressListLib", address(addrs.ownableAddressList));
         vm.serializeAddress(key, "SyncDepositHandlerLib", address(addrs.syncDepositHandler));
+        vm.serializeAddress(
+            key, "AddressListsSharesTransferValidatorLib", address(addrs.addressListsSharesTransferValidator)
+        );
         vm.serializeAddress(key, "CreWorkflowConsumerFactory", address(addrs.creWorkflowConsumerFactory));
-        string memory json = vm.serializeAddress(key, "CreWorkflowConsumerLib", address(addrs.creWorkflowConsumer));
+        vm.serializeAddress(key, "CreWorkflowConsumerLib", address(addrs.creWorkflowConsumer));
+        string memory json = vm.serializeAddress(key, "SharesDeployer", address(addrs.sharesDeployer));
 
         vm.createDir("./deploy", true);
         string memory path = string.concat("./deploy/", vm.toString(block.chainid), ".json");

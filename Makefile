@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-ALL_NETWORKS := mainnet arbitrum base ethereum_sepolia mega_eth plume
+ALL_NETWORKS := mainnet arbitrum base ethereum_sepolia mega_eth plume rayls
 
 .PHONY: help deploy _deploy-one
 
@@ -13,7 +13,7 @@ help:
 	@echo "NETWORK forms:"
 	@echo "  NETWORK=arbitrum                single network"
 	@echo "  NETWORK=arbitrum,base           comma-separated subset"
-	@echo "  NETWORK=all                     all 6 networks"
+	@echo "  NETWORK=all                     all 7 networks"
 	@echo ""
 	@echo "Supported networks: $(ALL_NETWORKS)"
 	@echo ""
@@ -23,7 +23,7 @@ help:
 	@echo ""
 	@echo "Verification:"
 	@echo "  Etherscan v2:  mainnet, arbitrum, base, ethereum_sepolia"
-	@echo "  Blockscout:    mega_eth, plume (no API key required)"
+	@echo "  Blockscout:    mega_eth, plume, rayls (no API key required)"
 	@echo ""
 	@echo "Default keystore: <chain>-deployer (override with ACCOUNT=...)"
 	@echo "Constructor args: optional deploy/<CONTRACT>/.args.<chain>.txt"
@@ -100,6 +100,7 @@ deploy:
 	    ethereum_sepolia) echo "38;5;141" ;; \
 	    mega_eth)         echo "38;5;213" ;; \
 	    plume)            echo "38;5;245" ;; \
+	    rayls)            echo "38;5;82" ;; \
 	  esac; \
 	}; \
 	pids_arr=(); \
@@ -128,6 +129,7 @@ deploy:
 
 _deploy-one:
 	@net="$(NETWORK)"; \
+	build_flags=""; \
 	case "$$net" in \
 	  mainnet)          verify_flags="--verify";                                                                                            explorer="https://etherscan.io" ;; \
 	  arbitrum)         verify_flags="--verify";                                                                                            explorer="https://arbiscan.io" ;; \
@@ -135,6 +137,7 @@ _deploy-one:
 	  ethereum_sepolia) verify_flags="--verify";                                                                                            explorer="https://sepolia.etherscan.io" ;; \
 	  mega_eth)         verify_flags="--verify --verifier blockscout --verifier-url https://megaeth.blockscout.com/api/";                   explorer="https://megaeth.blockscout.com" ;; \
 	  plume)            verify_flags="--verify --verifier blockscout --verifier-url https://explorer-plume-mainnet-1.t.conduit.xyz/api/";   explorer="https://explorer.plume.org" ;; \
+	  rayls)            verify_flags="--verify --verifier blockscout --verifier-url https://explorer.rayls.com/api/";                       explorer="https://explorer.rayls.com"; build_flags="--evm-version cancun" ;; \
 	  *) echo "internal error: unknown network $$net" >&2; exit 1 ;; \
 	esac; \
 	account="$(ACCOUNT)"; \
@@ -159,6 +162,7 @@ _deploy-one:
 	    --delay 10 \
 	    --retries 10 \
 	    $$args_flag \
+	    $$build_flags \
 	    $$verify_flags \
 	    $(CONTRACT) 2>&1 | tee "$$tmpout"; then \
 	  addr=$$(grep -E '^Deployed to:' "$$tmpout" | awk '{print $$NF}' | tail -n1); \
