@@ -38,10 +38,8 @@ import {Shares} from "src/shares/Shares.sol";
 /// @author Enzyme Foundation <security@enzyme.finance>
 /// @notice Single-transaction deployment of a fully-configured Onyx vault (Shares + components)
 /// @dev Stateless after construction; safe to call permissionlessly.
-/// `Shares` is initialized with `config.initialOwner` while components are wired; that
-/// account must authorize this deployer's `onlyAdminOrOwner` / `onlyOwner` calls. After wiring, `transferOwnership(config.nominatedOwner)`
-/// runs (Ownable2Step pending); the nominee must call `Shares.acceptOwnership()` to complete
-/// the handover.
+/// `Shares` is initialized with this contract as owner while components are wired. After wiring,
+/// `transferOwnership(config.nominatedOwner)` runs (Ownable2Step pending). The nominee must call `Shares.acceptOwnership()` to complete the handover.
 contract SharesDeployer {
     using SafeERC20 for IERC20;
 
@@ -207,9 +205,7 @@ contract SharesDeployer {
 
     struct DeployConfig {
         SharesConfig shares;
-        /// @dev Initial `Shares` owner passed to `Shares.init` (must allow this deployer to configure Shares).
-        address initialOwner;
-        /// @dev Pending owner after deploy (`transferOwnership`; nominee calls `acceptOwnership()`).
+        /// @dev Pending owner after deploy (`transferOwnership`; nominee calls `acceptOwnership()`)
         address nominatedOwner;
         address[] admins;
         TransferValidatorConfig transferValidator;
@@ -267,8 +263,8 @@ contract SharesDeployer {
     // Errors
     //==================================================================================================================
 
-    error SharesDeployer__InitialOwnerCannotBeZero();
     error SharesDeployer__NominatedOwnerCannotBeZero();
+    error SharesDeployer__NominatedOwnerCannotBeDeployer();
     error SharesDeployer__ManagementFeeRequiresFeeHandler();
     error SharesDeployer__PerformanceFeeRequiresFeeHandler();
     error SharesDeployer__AccountERC20TrackerRequiresValuationHandler();
@@ -310,8 +306,8 @@ contract SharesDeployer {
     /// @notice Deploys and wires a complete Onyx vault in a single transaction
     /// @param _cfg The full vault configuration
     /// @return shares_ The address of the deployed Shares proxy
-    /// @dev Pending owner is `_cfg.nominatedOwner` (Ownable2Step); the nominee must call
-    /// `acceptOwnership()` to complete the handover.
+    /// @dev `Shares` owner during deploy is this contract. Pending owner is `_cfg.nominatedOwner` (Ownable2Step);
+    /// the nominee must call `acceptOwnership()` to complete the handover.
     function deploy(DeployConfig calldata _cfg) external returns (address shares_) {
         __validate(_cfg);
 
@@ -320,7 +316,7 @@ contract SharesDeployer {
         d.shares = BeaconFactory(SHARES_FACTORY)
             .deployProxy(
                 abi.encodeCall(
-                    Shares.init, (_cfg.initialOwner, _cfg.shares.name, _cfg.shares.symbol, _cfg.shares.valueAsset)
+                    Shares.init, (address(this), _cfg.shares.name, _cfg.shares.symbol, _cfg.shares.valueAsset)
                 )
             );
 
@@ -355,9 +351,9 @@ contract SharesDeployer {
     // Internal: validation
     //==================================================================================================================
 
-    function __validate(DeployConfig calldata _cfg) internal pure {
-        require(_cfg.initialOwner != address(0), SharesDeployer__InitialOwnerCannotBeZero());
+    function __validate(DeployConfig calldata _cfg) internal view {
         require(_cfg.nominatedOwner != address(0), SharesDeployer__NominatedOwnerCannotBeZero());
+        require(_cfg.nominatedOwner != address(this), SharesDeployer__NominatedOwnerCannotBeDeployer());
         require(
             !_cfg.components.managementFee.deploy || _cfg.components.feeHandler.deploy,
             SharesDeployer__ManagementFeeRequiresFeeHandler()

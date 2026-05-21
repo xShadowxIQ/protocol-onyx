@@ -57,6 +57,7 @@ contract SharesDeployerTest is Test {
     BeaconFactory ownableAddressListFactory;
     ComponentBeaconFactory addressListsSharesTransferValidatorFactory;
 
+    address deployerWallet = makeAddr("deployerWallet");
     address vaultOwner = makeAddr("vaultOwner");
     address feeRecipient = makeAddr("feeRecipient");
     address adminA = makeAddr("adminA");
@@ -129,8 +130,7 @@ contract SharesDeployerTest is Test {
 
     function __minimalConfig() internal view returns (SharesDeployer.DeployConfig memory cfg) {
         cfg.shares = SharesDeployer.SharesConfig({name: SHARES_NAME, symbol: SHARES_SYMBOL, valueAsset: VALUE_ASSET});
-        cfg.initialOwner = address(deployer);
-        cfg.nominatedOwner = vaultOwner;
+        cfg.nominatedOwner = deployerWallet;
     }
 
     function __fullConfig() internal view returns (SharesDeployer.DeployConfig memory cfg) {
@@ -254,8 +254,8 @@ contract SharesDeployerTest is Test {
 
         assertTrue(shares.isAdmin(adminA), "adminA");
         assertTrue(shares.isAdmin(adminB), "adminB");
-        assertEq(shares.pendingOwner(), vaultOwner, "pending owner");
-        assertEq(shares.owner(), address(deployer), "deployer is still owner until acceptance");
+        assertEq(shares.pendingOwner(), deployerWallet, "pending owner");
+        assertEq(shares.owner(), address(deployer), "deployer contract is owner until nominee accepts");
 
         assertFalse(shares.isDepositHandler(address(deployer)), "deployer still deposit handler");
     }
@@ -374,8 +374,39 @@ contract SharesDeployerTest is Test {
         assertEq(shares.getFeeHandler(), address(0));
         assertEq(shares.getValuationHandler(), address(0));
         assertEq(shares.getSharesTransferValidator(), address(0));
-        assertEq(shares.pendingOwner(), vaultOwner);
+        assertEq(shares.pendingOwner(), deployerWallet);
         assertEq(shares.owner(), address(deployer));
+    }
+
+    //==================================================================================================================
+    // Ownership handover (deployer wallet -> vault owner)
+    //==================================================================================================================
+
+    function test_deploy_ownershipHandover_deployerWalletToVaultOwner() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+
+        Shares shares = Shares(deployer.deploy(cfg));
+
+        assertEq(shares.owner(), address(deployer));
+        assertEq(shares.pendingOwner(), deployerWallet);
+
+        vm.prank(deployerWallet);
+        shares.acceptOwnership();
+
+        assertEq(shares.owner(), deployerWallet);
+        assertEq(shares.pendingOwner(), address(0));
+
+        vm.prank(deployerWallet);
+        shares.transferOwnership(vaultOwner);
+
+        assertEq(shares.owner(), deployerWallet);
+        assertEq(shares.pendingOwner(), vaultOwner);
+
+        vm.prank(vaultOwner);
+        shares.acceptOwnership();
+
+        assertEq(shares.owner(), vaultOwner);
+        assertEq(shares.pendingOwner(), address(0));
     }
 
     //==================================================================================================================
@@ -418,11 +449,11 @@ contract SharesDeployerTest is Test {
     // Validation reverts
     //==================================================================================================================
 
-    function test_deploy_revertsOn_zeroInitialOwner() public {
+    function test_deploy_revertsOn_nominatedOwnerIsDeployer() public {
         SharesDeployer.DeployConfig memory cfg = __minimalConfig();
-        cfg.initialOwner = address(0);
+        cfg.nominatedOwner = address(deployer);
 
-        vm.expectRevert(SharesDeployer.SharesDeployer__InitialOwnerCannotBeZero.selector);
+        vm.expectRevert(SharesDeployer.SharesDeployer__NominatedOwnerCannotBeDeployer.selector);
         deployer.deploy(cfg);
     }
 
