@@ -1,0 +1,49 @@
+on: workflow_dispatch
+
+concurrency:
+  group: prod
+  cancel-in-progress: false
+
+permissions: {}
+
+name: Publish protocol to public repo
+
+jobs:
+  promote:
+    name: Publish
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-large
+    environment: prod
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Temp Auth Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.PUBLIC_REPO_SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLIC_REPO_SYNC_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: protocol-onyx
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git fetch https://x-access-token:${GH_TOKEN}@github.com/enzymefinance/protocol-onyx.git \
+            refs/heads/main:refs/remotes/public/main
+          git push https://x-access-token:${GH_TOKEN}@github.com/enzymefinance/protocol-onyx.git \
+            HEAD:main \
+            --force-with-lease=refs/heads/main:refs/remotes/public/main
+
+      - name: Revoke Auth Token
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh api --method DELETE /installation/token
