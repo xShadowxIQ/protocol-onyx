@@ -14,7 +14,7 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ComponentHelpersMixin} from "src/components/utils/ComponentHelpersMixin.sol";
+import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {IAddressList} from "src/infra/lists/address-list/IAddressList.sol";
 import {IFeeHandler} from "src/interfaces/IFeeHandler.sol";
@@ -27,7 +27,7 @@ import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
 /// @notice A synchronous deposit handler where users deposit an ERC20 asset and immediately receive pro-rated shares
 /// @dev Considerations and limitations:
 /// - may not support irregular asset behaviors (e.g., fee-on-transfer)
-contract SyncDepositHandler is Initializable, ComponentHelpersMixin {
+contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
     using SafeERC20 for IERC20;
 
     //==================================================================================================================
@@ -163,9 +163,10 @@ contract SyncDepositHandler is Initializable, ComponentHelpersMixin {
         __validateSharePriceTimestamp({_sharePriceTimestamp: sharePriceTimestamp});
 
         // Calculate gross shares
-        uint256 value = valuationHandler.convertAssetAmountToValue({_asset: getAsset(), _assetAmount: _assetAmount});
-        uint256 grossSharesAmount =
-            ValueHelpersLib.calcSharesAmountForValue({_valuePerShare: sharePriceInValueAsset, _value: value});
+        uint256 grossSharesAmount = ValueHelpersLib.calcSharesAmountForValue({
+            _valuePerShare: sharePriceInValueAsset,
+            _value: valuationHandler.convertAssetAmountToValue({_asset: getAsset(), _assetAmount: _assetAmount})
+        });
 
         // Settle any entrance fee
         IFeeHandler feeHandler = IFeeHandler(shares.getFeeHandler());
@@ -182,6 +183,15 @@ contract SyncDepositHandler is Initializable, ComponentHelpersMixin {
 
         // Transfer asset from depositor directly to Shares
         IERC20(getAsset()).safeTransferFrom(_depositor, address(shares), _assetAmount);
+
+        __postIssuance({
+            _caller: msg.sender,
+            _receiver: _depositor,
+            _onBehalf: _depositor,
+            _asset: getAsset(),
+            _sharesAmount: sharesAmount_,
+            _assetAmount: _assetAmount
+        });
 
         emit Deposit({
             depositor: _depositor, assetAmount: _assetAmount, sharesAmount: sharesAmount_, referrer: _referrer

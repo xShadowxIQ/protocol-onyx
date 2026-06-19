@@ -14,8 +14,10 @@ pragma solidity 0.8.28;
 import {IERC20Metadata as IERC20} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {SyncDepositHandler} from "src/components/issuance/deposit-handlers/SyncDepositHandler.sol";
+import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
 import {ComponentHelpersMixin} from "src/components/utils/ComponentHelpersMixin.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
+import {IPostIssuanceHook} from "src/interfaces/IPostIssuanceHook.sol";
 import {Shares} from "src/shares/Shares.sol";
 
 import {SyncDepositHandlerHarness} from "test/harnesses/SyncDepositHandlerHarness.sol";
@@ -318,6 +320,100 @@ contract SyncDepositHandlerTest is TestHelpers {
             IERC20(depositAsset).balanceOf(address(shares)),
             preSharesAssetBalance + _depositAmount,
             "incorrect Shares asset balance"
+        );
+    }
+
+    //==================================================================================================================
+    // Issuance validators
+    //==================================================================================================================
+
+    function test_setPostIssuanceHook_fail_notAdminOrOwner() public {
+        address randomUser = makeAddr("randomUser");
+
+        vm.expectRevert(ComponentHelpersMixin.ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized.selector);
+        vm.prank(randomUser);
+        depositHandler.setPostIssuanceHook(makeAddr("validator"));
+    }
+
+    function test_setPostIssuanceHook_success() public {
+        address validator = makeAddr("validator");
+
+        vm.expectEmit(address(depositHandler));
+        emit PostIssuanceHookHandlerBase.PostIssuanceHookSet(validator);
+
+        vm.prank(admin);
+        depositHandler.setPostIssuanceHook(validator);
+
+        assertEq(depositHandler.getPostIssuanceHook(), validator, "validator not set");
+    }
+
+    function test_deposit_hookUnset_noValidation() public {
+        // No hook set by default: issuance proceeds without any validation hook.
+        assertEq(depositHandler.getPostIssuanceHook(), address(0), "post hook should default to address(0)");
+
+        valuationHandler.harness_setLastShareValue({_shareValue: 1e18, _timestamp: block.timestamp});
+        uint128 assetRate = 5e18; // 1:5: 1 asset = 5 value asset
+        vm.prank(admin);
+        valuationHandler.setAssetRate(
+            ValuationHandler.AssetRateInput({asset: depositAsset, rate: assetRate, expiry: uint40(type(uint40).max)})
+        );
+
+        __test_deposit_success({_referred: false, _depositAmount: 100e6, _expectedShares: 500e18});
+    }
+
+    function test_deposit_callsPostIssuanceHook() public {
+        uint256 assetAmount = 100e6;
+        uint256 expectedShares = 500e18;
+
+        __setSharePriceForDeposit();
+
+        address validator = makeAddr("postIssuanceValidator");
+        vm.prank(admin);
+        depositHandler.setPostIssuanceHook(validator);
+
+        // The post hook fires after the mint, with the net minted shares and the deposited asset amount.
+        bytes memory expectedCall = abi.encodeCall(
+            IPostIssuanceHook.postIssuance, (depositor, depositor, depositor, depositAsset, expectedShares, assetAmount)
+        );
+        vm.mockCall(validator, expectedCall, bytes(""));
+
+        vm.expectCall(validator, expectedCall);
+
+        vm.prank(depositor);
+        uint256 sharesReceived = depositHandler.deposit({_assetAmount: assetAmount});
+
+        assertEq(sharesReceived, expectedShares, "unexpected shares minted");
+    }
+
+    function test_depositReferred_callsPostIssuanceHook() public {
+        uint256 assetAmount = 100e6;
+        uint256 expectedShares = 500e18;
+        bytes32 referrer = "ref";
+
+        __setSharePriceForDeposit();
+
+        address validator = makeAddr("postIssuanceValidator");
+        vm.prank(admin);
+        depositHandler.setPostIssuanceHook(validator);
+
+        bytes memory expectedCall = abi.encodeCall(
+            IPostIssuanceHook.postIssuance, (depositor, depositor, depositor, depositAsset, expectedShares, assetAmount)
+        );
+        vm.mockCall(validator, expectedCall, bytes(""));
+
+        vm.expectCall(validator, expectedCall);
+
+        vm.prank(depositor);
+        uint256 sharesReceived = depositHandler.depositReferred({_assetAmount: assetAmount, _referrer: referrer});
+
+        assertEq(sharesReceived, expectedShares, "unexpected shares minted");
+    }
+
+    function __setSharePriceForDeposit() internal {
+        valuationHandler.harness_setLastShareValue({_shareValue: 1e18, _timestamp: block.timestamp});
+        vm.prank(admin);
+        valuationHandler.setAssetRate(
+            ValuationHandler.AssetRateInput({asset: depositAsset, rate: 5e18, expiry: uint40(type(uint40).max)})
         );
     }
 }
