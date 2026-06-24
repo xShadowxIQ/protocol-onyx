@@ -34,6 +34,7 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
     LimitedAccessLimitedCallForwarderHarness limitedAccessForwarder;
 
     IChainlinkKeystoneForwarder chainlinkKeystoneForwarder;
+    address mockForwarder;
 
     address constant ALLOWED_WORKFLOW_OWNER = address(0x3); // mocked workflow owner
     bytes32 constant ALLOWED_WORKFLOW_ID = keccak256("workflowId");
@@ -60,6 +61,11 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
 
         vm.prank(owner);
         workflowConsumer.setAllowedWorkflowId(ALLOWED_WORKFLOW_ID);
+
+        // Add a mock forwarder address to the KeystoneForwarder's authorized forwarders list
+        mockForwarder = makeAddr("mockForwarder");
+        vm.prank(chainlinkKeystoneForwarder.owner());
+        chainlinkKeystoneForwarder.addForwarder(mockForwarder);
     }
 
     //==================================================================================================================
@@ -76,6 +82,25 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
         // - Offset 32, size 10: workflow_name (bytes10)
         // - Offset 42, size 20: workflow_owner (address)
         metadata_ = abi.encodePacked(_workflowId, _workflowName, _workflowOwner);
+    }
+
+    function __encodeReport(uint256 _nonce, uint256 _expiresAt, OpenAccessLimitedCallForwarder.Call[] memory _calls)
+        internal
+        pure
+        returns (bytes memory report_)
+    {
+        report_ = abi.encode(CreWorkflowConsumer.Report({nonce: _nonce, expiresAt: _expiresAt, calls: _calls}));
+    }
+
+    /// @dev Routes a report through the authorized mock forwarder, as the Chainlink Keystone Forwarder would
+    function __route(bytes32 _transmissionId, bytes memory _metadata, bytes memory _report)
+        internal
+        returns (bool success_)
+    {
+        vm.prank(mockForwarder);
+        success_ = chainlinkKeystoneForwarder.route(
+            _transmissionId, makeAddr("transmitter"), address(workflowConsumer), _metadata, _report
+        );
     }
 
     //==================================================================================================================
@@ -105,7 +130,9 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
 
     function test_onReport_fail_invalidSender() public {
         bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
-        bytes memory report = abi.encode(new OpenAccessLimitedCallForwarder.Call[](0));
+        bytes memory report = __encodeReport({
+            _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
 
         vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidOnReportSender.selector);
 
@@ -116,7 +143,9 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
     function test_onReport_fail_invalidWorkflowId() public {
         bytes32 wrongWorkflowId = keccak256("wrongWorkflowId");
         bytes memory metadata = __encodeMetadata(wrongWorkflowId, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
-        bytes memory report = abi.encode(new OpenAccessLimitedCallForwarder.Call[](0));
+        bytes memory report = __encodeReport({
+            _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
 
         vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidWorkflowId.selector);
 
@@ -127,7 +156,9 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
     function test_onReport_fail_invalidWorkflowName() public {
         bytes10 wrongWorkflowName = bytes10("wrongName");
         bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, wrongWorkflowName, ALLOWED_WORKFLOW_OWNER);
-        bytes memory report = abi.encode(new OpenAccessLimitedCallForwarder.Call[](0));
+        bytes memory report = __encodeReport({
+            _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
 
         vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidWorkflowName.selector);
 
@@ -138,7 +169,9 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
     function test_onReport_fail_invalidWorkflowOwner() public {
         address wrongWorkflowOwner = makeAddr("wrongWorkflowOwner");
         bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, wrongWorkflowOwner);
-        bytes memory report = abi.encode(new OpenAccessLimitedCallForwarder.Call[](0));
+        bytes memory report = __encodeReport({
+            _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
 
         vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidWorkflowOwner.selector);
 
@@ -167,25 +200,165 @@ abstract contract CreWorkflowConsumerTestBase is TestHelpers {
         });
 
         bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
-        bytes memory report = abi.encode(calls);
+        bytes memory report = __encodeReport({_nonce: 1, _expiresAt: block.timestamp + 1, _calls: calls});
 
-        // Add a mock forwarder address to the KeystoneForwarder's authorized forwarders list
-        address mockForwarder = makeAddr("mockForwarder");
-        address keystoneOwner = chainlinkKeystoneForwarder.owner();
-        vm.prank(keystoneOwner);
-        chainlinkKeystoneForwarder.addForwarder(mockForwarder);
+        vm.expectEmit(address(workflowConsumer));
+        emit CreWorkflowConsumer.LastNonceSet(1);
 
-        bytes32 transmissionId = keccak256("transmissionId");
-        address transmitter = makeAddr("transmitter");
-
-        // Call route from the authorized mock forwarder
-        vm.prank(mockForwarder);
-        bool success =
-            chainlinkKeystoneForwarder.route(transmissionId, transmitter, address(workflowConsumer), metadata, report);
+        bool success = __route({_transmissionId: keccak256("transmissionId"), _metadata: metadata, _report: report});
 
         assertTrue(success, "route call failed");
         assertEq(callTarget.value(), expectedValue, "call target value not set after onReport");
         assertEq(callTarget.caller(), address(limitedAccessForwarder), "call target caller not set after onReport");
+        assertEq(workflowConsumer.getLastNonce(), 1, "last nonce not advanced after onReport");
+    }
+
+    function test_onReport_fail_reportExpired() public {
+        bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
+        bytes memory report = __encodeReport({
+            _nonce: 1, _expiresAt: block.timestamp - 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
+
+        vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__ReportExpired.selector);
+
+        vm.prank(address(chainlinkKeystoneForwarder));
+        workflowConsumer.onReport(metadata, report);
+    }
+
+    function test_onReport_fail_invalidNonce_zeroAgainstInitial() public {
+        bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
+        bytes memory report = __encodeReport({
+            _nonce: 0, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
+
+        vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidNonce.selector);
+
+        vm.prank(address(chainlinkKeystoneForwarder));
+        workflowConsumer.onReport(metadata, report);
+    }
+
+    function test_onReport_fail_replay() public {
+        vm.prank(owner);
+        limitedAccessForwarder.addUser(address(workflowConsumer));
+
+        bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
+        bytes memory report = __encodeReport({
+            _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
+
+        assertTrue(
+            __route({_transmissionId: keccak256("transmissionId-1"), _metadata: metadata, _report: report}),
+            "initial route call failed"
+        );
+
+        vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidNonce.selector);
+
+        vm.prank(address(chainlinkKeystoneForwarder));
+        workflowConsumer.onReport(metadata, report);
+    }
+
+    function test_onReport_fail_lowerNonce() public {
+        vm.prank(owner);
+        limitedAccessForwarder.addUser(address(workflowConsumer));
+
+        bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
+
+        // Advance lastNonce to 2 (sequential: 1 then 2), so the next expected nonce is 3.
+        assertTrue(
+            __route({
+                _transmissionId: keccak256("transmissionId-1"),
+                _metadata: metadata,
+                _report: __encodeReport({
+                    _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+                })
+            }),
+            "first route call failed"
+        );
+        assertTrue(
+            __route({
+                _transmissionId: keccak256("transmissionId-2"),
+                _metadata: metadata,
+                _report: __encodeReport({
+                    _nonce: 2, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+                })
+            }),
+            "second route call failed"
+        );
+
+        // A nonce lower than the next expected (3) is rejected.
+        bytes memory lowerNonceReport = __encodeReport({
+            _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
+
+        vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidNonce.selector);
+
+        vm.prank(address(chainlinkKeystoneForwarder));
+        workflowConsumer.onReport(metadata, lowerNonceReport);
+    }
+
+    function test_onReport_success_advancesNonce() public {
+        vm.prank(owner);
+        limitedAccessForwarder.addUser(address(workflowConsumer));
+
+        bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
+
+        vm.expectEmit(address(workflowConsumer));
+        emit CreWorkflowConsumer.LastNonceSet(1);
+
+        assertTrue(
+            __route({
+                _transmissionId: keccak256("transmissionId-1"),
+                _metadata: metadata,
+                _report: __encodeReport({
+                    _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+                })
+            }),
+            "first route call failed"
+        );
+        assertEq(workflowConsumer.getLastNonce(), 1, "last nonce not advanced after first report");
+
+        vm.expectEmit(address(workflowConsumer));
+        emit CreWorkflowConsumer.LastNonceSet(2);
+
+        assertTrue(
+            __route({
+                _transmissionId: keccak256("transmissionId-2"),
+                _metadata: metadata,
+                _report: __encodeReport({
+                    _nonce: 2, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+                })
+            }),
+            "second route call failed"
+        );
+        assertEq(workflowConsumer.getLastNonce(), 2, "last nonce not advanced after second report");
+    }
+
+    function test_onReport_fail_nonSequentialNonce() public {
+        vm.prank(owner);
+        limitedAccessForwarder.addUser(address(workflowConsumer));
+
+        bytes memory metadata = __encodeMetadata(ALLOWED_WORKFLOW_ID, ALLOWED_WORKFLOW_NAME, ALLOWED_WORKFLOW_OWNER);
+
+        assertTrue(
+            __route({
+                _transmissionId: keccak256("transmissionId-1"),
+                _metadata: metadata,
+                _report: __encodeReport({
+                    _nonce: 1, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+                })
+            }),
+            "initial route call failed"
+        );
+
+        // A gap (nonce 3 when 2 is expected next) is rejected, so no report can be skipped.
+        bytes memory gappedReport = __encodeReport({
+            _nonce: 3, _expiresAt: block.timestamp + 1, _calls: new OpenAccessLimitedCallForwarder.Call[](0)
+        });
+
+        vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidNonce.selector);
+
+        vm.prank(address(chainlinkKeystoneForwarder));
+        workflowConsumer.onReport(metadata, gappedReport);
     }
 
     //==================================================================================================================

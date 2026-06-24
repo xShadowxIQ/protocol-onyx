@@ -27,6 +27,21 @@ import {IReceiver} from "./IReceiver.sol";
 /// compromised, the on-chain checks would still block unauthorized workflows from executing).
 contract CreWorkflowConsumer is IReceiver, ComponentHelpersMixin {
     //==================================================================================================================
+    // Types
+    //==================================================================================================================
+
+    /// @notice The report payload decoded from a Chainlink workflow report
+    /// @param nonce A sequential nonce supplied by the workflow; it must equal the previous nonce + 1
+    /// Gaps are rejected, so no report can be skipped (replay and strict ordering protection)
+    /// @param expiresAt The unix timestamp after which the report is no longer executable
+    /// @param calls The calls to forward for execution
+    struct Report {
+        uint256 nonce;
+        uint256 expiresAt;
+        OpenAccessLimitedCallForwarder.Call[] calls;
+    }
+
+    //==================================================================================================================
     // Immutables
     //==================================================================================================================
 
@@ -45,10 +60,13 @@ contract CreWorkflowConsumer is IReceiver, ComponentHelpersMixin {
     /// @param allowedWorkflowId The allowed workflow ID
     /// @param allowedWorkflowName The allowed workflow name
     /// @param limitedAccessLimitedCallForwarder The forwarder contract for executing calls
+    /// @param lastNonce The nonce of the most recently accepted report; reports must carry a nonce exactly
+    /// one greater (sequential; replay and strict ordering protection)
     struct CreWorkflowConsumerStorage {
         bytes32 allowedWorkflowId;
         bytes10 allowedWorkflowName;
         LimitedAccessLimitedCallForwarder limitedAccessLimitedCallForwarder;
+        uint256 lastNonce;
     }
 
     function __getCreWorkflowConsumerStorage() internal pure returns (CreWorkflowConsumerStorage storage $) {
@@ -68,6 +86,8 @@ contract CreWorkflowConsumer is IReceiver, ComponentHelpersMixin {
 
     event LimitedAccessLimitedCallForwarderSet(LimitedAccessLimitedCallForwarder limitedAccessLimitedCallForwarder);
 
+    event LastNonceSet(uint256 lastNonce);
+
     //==================================================================================================================
     // Errors
     //==================================================================================================================
@@ -83,6 +103,10 @@ contract CreWorkflowConsumer is IReceiver, ComponentHelpersMixin {
     error CreWorkflowConsumer__OnReport__InvalidWorkflowName();
 
     error CreWorkflowConsumer__OnReport__InvalidWorkflowOwner();
+
+    error CreWorkflowConsumer__OnReport__ReportExpired();
+
+    error CreWorkflowConsumer__OnReport__InvalidNonce();
 
     //==================================================================================================================
     // Constructor
@@ -130,7 +154,7 @@ contract CreWorkflowConsumer is IReceiver, ComponentHelpersMixin {
 
     /// @notice Receives and processes a report from the Chainlink workflow
     /// @param _metadata The metadata containing workflow ID, name, and owner
-    /// @param _report The encoded calls to execute
+    /// @param _report The ABI-encoded `Report` struct (nonce, expiresAt, calls)
     function onReport(bytes calldata _metadata, bytes calldata _report) external {
         require(msg.sender == CHAINLINK_KEYSTONE_FORWARDER, CreWorkflowConsumer__OnReport__InvalidOnReportSender());
 
@@ -140,8 +164,15 @@ contract CreWorkflowConsumer is IReceiver, ComponentHelpersMixin {
         require(workflowName == getAllowedWorkflowName(), CreWorkflowConsumer__OnReport__InvalidWorkflowName());
         require(workflowOwner == ALLOWED_WORKFLOW_OWNER, CreWorkflowConsumer__OnReport__InvalidWorkflowOwner());
 
-        getLimitedAccessLimitedCallForwarder()
-            .executeCalls({_calls: abi.decode(_report, (OpenAccessLimitedCallForwarder.Call[]))});
+        Report memory report = abi.decode(_report, (Report));
+
+        require(block.timestamp <= report.expiresAt, CreWorkflowConsumer__OnReport__ReportExpired());
+
+        require(report.nonce == getLastNonce() + 1, CreWorkflowConsumer__OnReport__InvalidNonce());
+        __getCreWorkflowConsumerStorage().lastNonce = report.nonce;
+        emit LastNonceSet(report.nonce);
+
+        getLimitedAccessLimitedCallForwarder().executeCalls({_calls: report.calls});
     }
 
     /// @notice Checks if the contract supports a given interface
@@ -203,5 +234,9 @@ contract CreWorkflowConsumer is IReceiver, ComponentHelpersMixin {
         returns (LimitedAccessLimitedCallForwarder limitedAccessLimitedCallForwarder_)
     {
         return __getCreWorkflowConsumerStorage().limitedAccessLimitedCallForwarder;
+    }
+
+    function getLastNonce() public view returns (uint256 lastNonce_) {
+        return __getCreWorkflowConsumerStorage().lastNonce;
     }
 }
