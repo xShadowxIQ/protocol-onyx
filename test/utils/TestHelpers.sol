@@ -13,23 +13,6 @@ pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 
-import {PolicyEngine} from "@chainlink/policy-management/core/PolicyEngine.sol";
-import {PolicyEngineFactory} from "@chainlink/policy-management/core/PolicyEngineFactory.sol";
-
-import {
-    ChainlinkAcePreIssuanceValidator
-} from "src/components/issuance-validators/ChainlinkAcePreIssuanceValidator.sol";
-import {
-    ChainlinkAcePostIssuanceValidator
-} from "src/components/issuance-validators/ChainlinkAcePostIssuanceValidator.sol";
-import {
-    ChainlinkAceIssuanceValidatorBase
-} from "src/components/issuance-validators/ChainlinkAceIssuanceValidatorBase.sol";
-import {
-    ChainlinkAceSharesTransferValidator
-} from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
-import {ComponentBeaconFactory} from "src/factories/ComponentBeaconFactory.sol";
-import {Global} from "src/global/Global.sol";
 import {IFeeHandler} from "src/interfaces/IFeeHandler.sol";
 import {IPositionTracker} from "src/components/value/position-trackers/IPositionTracker.sol";
 import {IValuationHandler} from "src/interfaces/IValuationHandler.sol";
@@ -49,68 +32,6 @@ contract TestHelpers is Constants, Test {
 
         shares_ = new Shares();
         shares_.init({_owner: owner, _name: name, _symbol: symbol, _valueAsset: valueAsset});
-    }
-
-    function deployPolicyEngine(bool _defaultAllow) internal returns (address engine_) {
-        return deployPolicyEngine(_defaultAllow, bytes32(0));
-    }
-
-    function deployPolicyEngine(bool _defaultAllow, bytes32 _uniqueId) internal returns (address engine_) {
-        address implementation = address(new PolicyEngine());
-        PolicyEngineFactory factory = new PolicyEngineFactory();
-        engine_ = factory.createPolicyEngine({
-            implementation: implementation,
-            uniqueEngineId: _uniqueId,
-            policyEngineDefaultAllow: _defaultAllow,
-            initialOwner: makeAddr("policyEngineOwner")
-        });
-    }
-
-    function deployChainlinkAceSharesTransferValidator(address _shares, address _policyEngine)
-        internal
-        returns (address validator_)
-    {
-        Global global = new Global();
-        global.init({_owner: address(this)});
-
-        ComponentBeaconFactory factory = new ComponentBeaconFactory(address(global));
-        factory.setImplementation(address(new ChainlinkAceSharesTransferValidator()));
-
-        validator_ = factory.deployProxy({
-            _shares: _shares, _initData: abi.encodeCall(ChainlinkAceSharesTransferValidator.init, (_policyEngine))
-        });
-    }
-
-    function deployChainlinkAcePreIssuanceValidator(address _shares, address _handler, address _policyEngine)
-        internal
-        returns (address validator_)
-    {
-        Global global = new Global();
-        global.init({_owner: address(this)});
-
-        ComponentBeaconFactory factory = new ComponentBeaconFactory(address(global));
-        factory.setImplementation(address(new ChainlinkAcePreIssuanceValidator()));
-
-        validator_ = factory.deployProxy({
-            _shares: _shares,
-            _initData: abi.encodeCall(ChainlinkAceIssuanceValidatorBase.init, (_handler, _policyEngine))
-        });
-    }
-
-    function deployChainlinkAcePostIssuanceValidator(address _shares, address _handler, address _policyEngine)
-        internal
-        returns (address validator_)
-    {
-        Global global = new Global();
-        global.init({_owner: address(this)});
-
-        ComponentBeaconFactory factory = new ComponentBeaconFactory(address(global));
-        factory.setImplementation(address(new ChainlinkAcePostIssuanceValidator()));
-
-        validator_ = factory.deployProxy({
-            _shares: _shares,
-            _initData: abi.encodeCall(ChainlinkAceIssuanceValidatorBase.init, (_handler, _policyEngine))
-        });
     }
 
     // MOCKS: FUNCTION CALLS

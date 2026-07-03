@@ -16,8 +16,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC7540LikeRedeemHandler} from "src/components/issuance/redeem-handlers/IERC7540LikeRedeemHandler.sol";
 import {ERC7540LikeIssuanceBase} from "src/components/issuance/utils/ERC7540LikeIssuanceBase.sol";
-import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
-import {PreIssuanceHookHandlerBase} from "src/components/issuance/utils/PreIssuanceHookHandlerBase.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {IFeeHandler} from "src/interfaces/IFeeHandler.sol";
 import {Shares} from "src/shares/Shares.sol";
@@ -29,12 +27,7 @@ import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
 /// @notice A IERC7540LikeRedeemHandler implementation that manages requests as an ordered queue
 /// @dev Does not enforce request execution in any particular order. If desired, this must be done peripherally.
 /// Does not validate the sharePrice() timestamp.
-contract ERC7540LikeRedeemQueue is
-    IERC7540LikeRedeemHandler,
-    ERC7540LikeIssuanceBase,
-    PreIssuanceHookHandlerBase,
-    PostIssuanceHookHandlerBase
-{
+contract ERC7540LikeRedeemQueue is IERC7540LikeRedeemHandler, ERC7540LikeIssuanceBase {
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
 
@@ -152,10 +145,6 @@ contract ERC7540LikeRedeemQueue is
         require(_owner == _controller, ERC7540LikeRedeemQueue__RequestRedeem__OwnerNotController());
         require(_shares > 0, ERC7540LikeRedeemQueue__RequestRedeem__ZeroShares());
 
-        __preIssuance({
-            _caller: msg.sender, _receiver: _controller, _onBehalf: _controller, _asset: asset(), _amount: _shares
-        });
-
         uint40 canCancelTime = uint40(block.timestamp + getRedeemMinRequestDuration());
 
         // Increment id counter and add request to queue
@@ -210,15 +199,6 @@ contract ERC7540LikeRedeemQueue is
 
             // Send asset to the user
             shares.withdrawAssetTo({_asset: asset(), _to: request.controller, _amount: userAssets});
-
-            __postIssuance({
-                _caller: msg.sender,
-                _receiver: request.controller,
-                _onBehalf: request.controller,
-                _asset: asset(),
-                _sharesAmount: request.sharesAmount,
-                _assetAmount: userAssets
-            });
 
             // Required event for ERC7540
             emit Withdraw({

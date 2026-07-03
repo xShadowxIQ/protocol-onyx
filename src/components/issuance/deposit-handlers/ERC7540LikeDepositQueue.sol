@@ -16,8 +16,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC7540LikeDepositHandler} from "src/components/issuance/deposit-handlers/IERC7540LikeDepositHandler.sol";
 import {ERC7540LikeIssuanceBase} from "src/components/issuance/utils/ERC7540LikeIssuanceBase.sol";
-import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
-import {PreIssuanceHookHandlerBase} from "src/components/issuance/utils/PreIssuanceHookHandlerBase.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {IAddressList} from "src/infra/lists/address-list/IAddressList.sol";
 import {IFeeHandler} from "src/interfaces/IFeeHandler.sol";
@@ -30,12 +28,7 @@ import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
 /// @notice A IERC7540LikeDepositHandler implementation that manages requests as an ordered queue
 /// @dev Does not enforce request execution in any particular order. If desired, this must be done peripherally.
 /// Does not validate the sharePrice() timestamp.
-contract ERC7540LikeDepositQueue is
-    IERC7540LikeDepositHandler,
-    ERC7540LikeIssuanceBase,
-    PreIssuanceHookHandlerBase,
-    PostIssuanceHookHandlerBase
-{
+contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssuanceBase {
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
 
@@ -223,10 +216,6 @@ contract ERC7540LikeDepositQueue is
         require(_owner == msg.sender, ERC7540LikeDepositQueue__RequestDeposit__OwnerNotSender());
         require(_owner == _controller, ERC7540LikeDepositQueue__RequestDeposit__OwnerNotController());
 
-        __preIssuance({
-            _caller: msg.sender, _receiver: _controller, _onBehalf: _controller, _asset: asset(), _amount: _assets
-        });
-
         __validateDepositRequest({_controller: _controller});
 
         uint40 canCancelTime = uint40(block.timestamp + getDepositMinRequestDuration());
@@ -288,11 +277,9 @@ contract ERC7540LikeDepositQueue is
             // Add to total assets deposited
             totalAssetsDeposited += request.assetAmount;
 
-            address asset = asset();
-
             // Calculate gross shares
             uint256 value =
-                valuationHandler.convertAssetAmountToValue({_asset: asset, _assetAmount: request.assetAmount});
+                valuationHandler.convertAssetAmountToValue({_asset: asset(), _assetAmount: request.assetAmount});
             uint256 grossSharesAmount =
                 ValueHelpersLib.calcSharesAmountForValue({_valuePerShare: sharePriceInValueAsset, _value: value});
             // Settle any entrance fee
@@ -306,15 +293,6 @@ contract ERC7540LikeDepositQueue is
 
             // Mint net shares to user
             shares.mintFor({_to: request.controller, _sharesAmount: netShares});
-
-            __postIssuance({
-                _caller: msg.sender,
-                _receiver: request.controller,
-                _onBehalf: request.controller,
-                _asset: asset,
-                _sharesAmount: netShares,
-                _assetAmount: request.assetAmount
-            });
 
             // Required event for ERC7540
             emit Deposit({
