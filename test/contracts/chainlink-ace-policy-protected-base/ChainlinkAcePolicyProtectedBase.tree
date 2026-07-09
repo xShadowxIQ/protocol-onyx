@@ -1,0 +1,21 @@
+ChainlinkAcePolicyProtectedBaseTest
+├── When calling __ChainlinkAcePolicyProtectedBase_init
+│   ├── When the new engine is the zero address
+│   │   └── It should revert with {ChainlinkAcePolicyProtectedBase__Init__ZeroAddress}.
+│   └── When the new engine is non-zero
+│       ├── It should set the stored policy engine to the new engine.
+│       ├── It should call attach on the new engine.
+│       └── It should emit a {PolicyEngineAttached} event with the new engine address.
+├── When calling getPolicyEngine
+│   ├── Given no engine is attached
+│   │   └── It should return the zero address.
+│   └── Given an engine is attached
+│       └── It should return the attached engine address.
+├── When calling setContext
+│   ├── It should store the context for the caller.
+│   └── It should not affect the context of other senders.
+└── When calling getSenderContext
+    ├── Given no context is set for the sender
+    │   └── It should return empty bytes.
+    └── Given a context is set for the sender
+        └── It should return the stored context for the sender.

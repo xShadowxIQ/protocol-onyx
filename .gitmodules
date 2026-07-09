@@ -13,3 +13,6 @@
 [submodule "lib/chainlink-evm"]
 	path = lib/chainlink-evm
 	url = https://github.com/smartcontractkit/chainlink-evm
+[submodule "lib/chainlink-ace"]
+	path = lib/chainlink-ace
+	url = https://github.com/smartcontractkit/chainlink-ace

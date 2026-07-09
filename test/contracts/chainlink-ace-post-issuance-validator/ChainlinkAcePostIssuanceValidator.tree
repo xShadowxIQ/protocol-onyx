@@ -1,0 +1,28 @@
+ChainlinkAcePostIssuanceValidatorTest
+├── When initializing
+│   ├── When the handler is the zero address
+│   │   └── It should revert with {ChainlinkAceIssuanceValidatorBase__Init__EmptyHandler}.
+│   ├── When the policy engine is the zero address
+│   │   └── It should revert with {ChainlinkAcePolicyProtectedBase__Init__ZeroAddress}.
+│   └── When both the handler and the policy engine are non-zero addresses
+│       ├── It should attach the validator to the policy engine.
+│       ├── It should store the policy engine as the attached engine.
+│       └── It should store the handler.
+└── When validating a post issuance
+    ├── When the caller is not the handler
+    │   └── It should revert with {ChainlinkAceIssuanceValidatorBase__OnlyHandler}.
+    └── When the caller is the handler
+        ├── It should call the policy engine with the post issuance selector.
+        ├── It should call the policy engine with the caller as the sender.
+        ├── It should call the policy engine with the abi-encoded caller, receiver, onBehalf, asset, sharesAmount and assetAmount as data.
+        ├── Given the policy engine rejects the run
+        │   └── It should revert with {PolicyRunRejected}.
+        ├── Given the policy engine allows the run
+        │   └── It should not revert.
+        ├── Given no context is stored for the caller
+        │   └── It should call the policy engine with empty context.
+        └── Given context is stored for the caller
+            ├── Given context is also stored for another sender
+            │   └── It should call the policy engine with the context keyed on the caller, not another sender.
+            ├── It should call the policy engine with the stored context.
+            └── It should leave the stored context for the caller after the run.
