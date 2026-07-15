@@ -14,13 +14,15 @@ pragma solidity 0.8.28;
 import {IERC20Metadata as IERC20} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {ERC7540LikeRedeemQueue} from "src/components/issuance/redeem-handlers/ERC7540LikeRedeemQueue.sol";
-import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
-import {PreIssuanceHookHandlerBase} from "src/components/issuance/utils/PreIssuanceHookHandlerBase.sol";
 import {ComponentHelpersMixin} from "src/components/utils/ComponentHelpersMixin.sol";
 import {IERC7540LikeRedeemHandler} from "src/components/issuance/redeem-handlers/IERC7540LikeRedeemHandler.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
-import {IPostIssuanceHook} from "src/interfaces/IPostIssuanceHook.sol";
-import {IPreIssuanceHook} from "src/interfaces/IPreIssuanceHook.sol";
+import {
+    IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook
+} from "src/components/issuance/interfaces/IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook.sol";
+import {
+    IERC7540LikeRedeemQueuePreRequestRedeemHook
+} from "src/components/issuance/interfaces/IERC7540LikeRedeemQueuePreRequestRedeemHook.sol";
 import {Shares} from "src/shares/Shares.sol";
 
 import {ERC7540LikeRedeemQueueHarness} from "test/harnesses/ERC7540LikeRedeemQueueHarness.sol";
@@ -392,50 +394,52 @@ contract ERC7540LikeRedeemQueueTest is TestHelpers {
     // Issuance validators
     //==================================================================================================================
 
-    function test_setPreIssuanceHook_fail_notAdminOrOwner() public {
+    function test_setPreRequestRedeemHook_fail_notAdminOrOwner() public {
         address randomUser = makeAddr("randomUser");
 
         vm.expectRevert(ComponentHelpersMixin.ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized.selector);
         vm.prank(randomUser);
-        redeemQueue.setPreIssuanceHook(makeAddr("validator"));
+        redeemQueue.setPreRequestRedeemHook(makeAddr("validator"));
     }
 
-    function test_setPreIssuanceHook_success() public {
+    function test_setPreRequestRedeemHook_success() public {
         address validator = makeAddr("validator");
 
         vm.expectEmit(address(redeemQueue));
-        emit PreIssuanceHookHandlerBase.PreIssuanceHookSet(validator);
+        emit ERC7540LikeRedeemQueue.PreRequestRedeemHookSet(validator);
 
         vm.prank(admin);
-        redeemQueue.setPreIssuanceHook(validator);
+        redeemQueue.setPreRequestRedeemHook(validator);
 
-        assertEq(redeemQueue.getPreIssuanceHook(), validator, "validator not set");
+        assertEq(redeemQueue.getPreRequestRedeemHook(), validator, "validator not set");
     }
 
-    function test_setPostIssuanceHook_fail_notAdminOrOwner() public {
+    function test_setPostExecuteRedeemRequestHook_fail_notAdminOrOwner() public {
         address randomUser = makeAddr("randomUser");
 
         vm.expectRevert(ComponentHelpersMixin.ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized.selector);
         vm.prank(randomUser);
-        redeemQueue.setPostIssuanceHook(makeAddr("validator"));
+        redeemQueue.setPostExecuteRedeemRequestHook(makeAddr("validator"));
     }
 
-    function test_setPostIssuanceHook_success() public {
+    function test_setPostExecuteRedeemRequestHook_success() public {
         address validator = makeAddr("validator");
 
         vm.expectEmit(address(redeemQueue));
-        emit PostIssuanceHookHandlerBase.PostIssuanceHookSet(validator);
+        emit ERC7540LikeRedeemQueue.PostExecuteRedeemRequestHookSet(validator);
 
         vm.prank(admin);
-        redeemQueue.setPostIssuanceHook(validator);
+        redeemQueue.setPostExecuteRedeemRequestHook(validator);
 
-        assertEq(redeemQueue.getPostIssuanceHook(), validator, "validator not set");
+        assertEq(redeemQueue.getPostExecuteRedeemRequestHook(), validator, "validator not set");
     }
 
     function test_requestRedeem_hooksUnset_noValidation() public {
         // No validators set by default: issuance proceeds without any validation hook.
-        assertEq(redeemQueue.getPreIssuanceHook(), address(0), "pre validator should default to address(0)");
-        assertEq(redeemQueue.getPostIssuanceHook(), address(0), "post validator should default to address(0)");
+        assertEq(redeemQueue.getPreRequestRedeemHook(), address(0), "pre validator should default to address(0)");
+        assertEq(
+            redeemQueue.getPostExecuteRedeemRequestHook(), address(0), "post validator should default to address(0)"
+        );
 
         address controller = makeAddr("controller");
         __test_requestRedeem_setup({_sharesOwner: controller});
@@ -446,21 +450,22 @@ contract ERC7540LikeRedeemQueueTest is TestHelpers {
         assertEq(redeemQueue.getRedeemRequest(requestId).sharesAmount, 123, "request not created");
     }
 
-    function test_requestRedeem_callsPreIssuanceHook() public {
+    function test_requestRedeem_callsPreRequestRedeemHook() public {
         address controller = makeAddr("controller");
         uint256 sharesAmount = 123;
 
         __test_requestRedeem_setup({_sharesOwner: controller});
-        address asset = redeemQueue.asset();
 
-        address validator = makeAddr("preIssuanceValidator");
+        address validator = makeAddr("preRedeemValidator");
         vm.prank(admin);
-        redeemQueue.setPreIssuanceHook(validator);
+        redeemQueue.setPreRequestRedeemHook(validator);
 
-        // The handler must invoke `preIssuance(caller, receiver, onBehalf, asset, amount)`. Make the validator block
-        // to prove the call happens before any state change.
-        bytes memory expectedCall =
-            abi.encodeCall(IPreIssuanceHook.preIssuance, (controller, controller, controller, asset, sharesAmount));
+        // The handler must invoke `preRequestRedeem(originator, controller, owner, amount)`. Make the validator
+        // block to prove the call happens before any state change.
+        bytes memory expectedCall = abi.encodeCall(
+            IERC7540LikeRedeemQueuePreRequestRedeemHook.preRequestRedeem,
+            (controller, controller, controller, sharesAmount)
+        );
         vm.mockCallRevert(validator, expectedCall, bytes("BLOCKED"));
 
         vm.expectCall(validator, expectedCall);
@@ -470,12 +475,12 @@ contract ERC7540LikeRedeemQueueTest is TestHelpers {
         redeemQueue.requestRedeem({_shares: sharesAmount, _controller: controller, _owner: controller});
     }
 
-    function test_executeRedeemRequests_callsPostIssuanceHook() public {
+    function test_executeRedeemRequests_callsPostExecuteRedeemRequestHook() public {
         ExecuteRedeemSetupData memory d = __test_executeRedeemRequests_setup();
 
-        address validator = makeAddr("postIssuanceValidator");
+        address validator = makeAddr("postRedeemValidator");
         vm.prank(admin);
-        redeemQueue.setPostIssuanceHook(validator);
+        redeemQueue.setPostExecuteRedeemRequestHook(validator);
 
         uint256[] memory requestIdsToExecute = new uint256[](2);
         requestIdsToExecute[0] = 1;
@@ -483,26 +488,12 @@ contract ERC7540LikeRedeemQueueTest is TestHelpers {
 
         // The post hook fires per executed request with the gross shares burned and the net assets sent out.
         bytes memory expectedCall1 = abi.encodeCall(
-            IPostIssuanceHook.postIssuance,
-            (
-                admin,
-                d.request1Controller,
-                d.request1Controller,
-                d.asset,
-                d.request1SharesAmount,
-                d.request1ExpectedAssetAmount
-            )
+            IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook.postExecuteRedeemRequest,
+            (admin, d.request1Controller, d.request1SharesAmount, d.request1ExpectedAssetAmount)
         );
         bytes memory expectedCall3 = abi.encodeCall(
-            IPostIssuanceHook.postIssuance,
-            (
-                admin,
-                d.request3Controller,
-                d.request3Controller,
-                d.asset,
-                d.request3SharesAmount,
-                d.request3ExpectedAssetAmount
-            )
+            IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook.postExecuteRedeemRequest,
+            (admin, d.request3Controller, d.request3SharesAmount, d.request3ExpectedAssetAmount)
         );
         vm.mockCall(validator, expectedCall1, bytes(""));
         vm.mockCall(validator, expectedCall3, bytes(""));

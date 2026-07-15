@@ -15,14 +15,16 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {Policy} from "@chainlink/policy-management/core/Policy.sol";
 import {AllowPolicy} from "@chainlink/policy-management/policies/AllowPolicy.sol";
-import {ERC20TransferExtractor} from "@chainlink/policy-management/extractors/ERC20TransferExtractor.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPolicyEngine} from "@chainlink/policy-management/interfaces/IPolicyEngine.sol";
 
 import {
     ChainlinkAceSharesTransferValidator
 } from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
+import {
+    ChainlinkAceSharesTransferExtractor
+} from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferExtractor.sol";
 import {ComponentBeaconFactory} from "src/factories/ComponentBeaconFactory.sol";
+import {ISharesTransferValidator} from "src/interfaces/ISharesTransferValidator.sol";
 import {Global} from "src/global/Global.sol";
 import {Shares} from "src/shares/Shares.sol";
 
@@ -59,15 +61,21 @@ contract ChainlinkAceSharesTransferE2ETest is TestHelpers {
         bytes memory initData = abi.encodeCall(Policy.initialize, (engine, policyOwner, ""));
         allowPolicy = AllowPolicy(address(new ERC1967Proxy(impl, initData)));
 
-        ERC20TransferExtractor extractor = new ERC20TransferExtractor();
+        ChainlinkAceSharesTransferExtractor extractor = new ChainlinkAceSharesTransferExtractor();
         bytes32[] memory params = new bytes32[](1);
         params[0] = extractor.PARAM_TO();
 
-        // The validator synthesizes a single `IERC20.transfer`-shaped payload for both
+        // The validator forwards a single `validateSharesTransfer`-shaped payload for both
         // `transfer` and `transferFrom`, so only one (selector, extractor, policy) wiring is needed.
         vm.startPrank(engineOwner);
-        IPolicyEngine(engine).setExtractor(IERC20.transfer.selector, address(extractor));
-        IPolicyEngine(engine).addPolicy(address(validator), IERC20.transfer.selector, address(allowPolicy), params);
+        IPolicyEngine(engine).setExtractor(ISharesTransferValidator.validateSharesTransfer.selector, address(extractor));
+        IPolicyEngine(engine)
+            .addPolicy(
+                address(validator),
+                ISharesTransferValidator.validateSharesTransfer.selector,
+                address(allowPolicy),
+                params
+            );
         vm.stopPrank();
 
         vm.prank(policyOwner);
@@ -83,8 +91,13 @@ contract ChainlinkAceSharesTransferE2ETest is TestHelpers {
     }
 
     function test_transfer_reverts_whenRecipientNotAllowed() public {
+        // For transfer(), the originator is the holder itself; the payload sender is the Shares contract,
+        // which invokes the validator hook
         IPolicyEngine.Payload memory expectedPayload = IPolicyEngine.Payload({
-            selector: IERC20.transfer.selector, sender: holder, data: abi.encode(blocked, 100 ether), context: bytes("")
+            selector: ISharesTransferValidator.validateSharesTransfer.selector,
+            sender: address(shares),
+            data: abi.encode(holder, holder, blocked, 100 ether),
+            context: bytes("")
         });
 
         vm.prank(holder);
@@ -114,8 +127,13 @@ contract ChainlinkAceSharesTransferE2ETest is TestHelpers {
         vm.prank(holder);
         shares.approve(spender, 100 ether);
 
+        // For transferFrom(), the originator is the spender; the payload sender is the Shares contract,
+        // which invokes the validator hook
         IPolicyEngine.Payload memory expectedPayload = IPolicyEngine.Payload({
-            selector: IERC20.transfer.selector, sender: holder, data: abi.encode(blocked, 100 ether), context: bytes("")
+            selector: ISharesTransferValidator.validateSharesTransfer.selector,
+            sender: address(shares),
+            data: abi.encode(spender, holder, blocked, 100 ether),
+            context: bytes("")
         });
 
         vm.prank(spender);

@@ -16,11 +16,15 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC7540LikeDepositHandler} from "src/components/issuance/deposit-handlers/IERC7540LikeDepositHandler.sol";
 import {ERC7540LikeIssuanceBase} from "src/components/issuance/utils/ERC7540LikeIssuanceBase.sol";
-import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
-import {PreIssuanceHookHandlerBase} from "src/components/issuance/utils/PreIssuanceHookHandlerBase.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {IAddressList} from "src/infra/lists/address-list/IAddressList.sol";
 import {IFeeHandler} from "src/interfaces/IFeeHandler.sol";
+import {
+    IERC7540LikeDepositQueuePostExecuteDepositRequestHook
+} from "src/components/issuance/interfaces/IERC7540LikeDepositQueuePostExecuteDepositRequestHook.sol";
+import {
+    IERC7540LikeDepositQueuePreRequestDepositHook
+} from "src/components/issuance/interfaces/IERC7540LikeDepositQueuePreRequestDepositHook.sol";
 import {Shares} from "src/shares/Shares.sol";
 import {StorageHelpersLib} from "src/utils/StorageHelpersLib.sol";
 import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
@@ -30,12 +34,7 @@ import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
 /// @notice A IERC7540LikeDepositHandler implementation that manages requests as an ordered queue
 /// @dev Does not enforce request execution in any particular order. If desired, this must be done peripherally.
 /// Does not validate the sharePrice() timestamp.
-contract ERC7540LikeDepositQueue is
-    IERC7540LikeDepositHandler,
-    ERC7540LikeIssuanceBase,
-    PreIssuanceHookHandlerBase,
-    PostIssuanceHookHandlerBase
-{
+contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssuanceBase {
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
 
@@ -78,6 +77,8 @@ contract ERC7540LikeDepositQueue is
     /// (only used if depositRestriction == ControllerAllowlistInternal)
     /// @param controllerAllowlist Address of the IAddressList contract for account validation as allowed controller
     /// (only used if depositRestriction == ControllerAllowlistExternal)
+    /// @param preRequestDepositHook A hook called with deposit requests before they are committed (`address(0)` disables it)
+    /// @param postExecuteDepositRequestHook A hook called with deposit requests after they are executed (`address(0)` disables it)
     struct DepositQueueStorage {
         uint128 lastId;
         uint24 minRequestDuration;
@@ -85,6 +86,8 @@ contract ERC7540LikeDepositQueue is
         mapping(uint256 => DepositRequestInfo) idToRequest;
         mapping(address => bool) isAllowedController;
         IAddressList controllerAllowlist;
+        address preRequestDepositHook;
+        address postExecuteDepositRequestHook;
     }
 
     function __getDepositQueueStorage() private pure returns (DepositQueueStorage storage $) {
@@ -107,6 +110,10 @@ contract ERC7540LikeDepositQueue is
     event DepositMinRequestDurationSet(uint24 minRequestDuration);
 
     event DepositRestrictionSet(DepositRestriction restriction);
+
+    event PreRequestDepositHookSet(address hook);
+
+    event PostExecuteDepositRequestHookSet(address hook);
 
     //==================================================================================================================
     // Errors
@@ -170,6 +177,20 @@ contract ERC7540LikeDepositQueue is
         emit DepositMinRequestDurationSet({minRequestDuration: _minRequestDuration});
     }
 
+    /// @notice Sets the pre-request-deposit hook (`address(0)` disables the pre-request-deposit hook)
+    function setPreRequestDepositHook(address _preRequestDepositHook) external onlyAdminOrOwner {
+        __getDepositQueueStorage().preRequestDepositHook = _preRequestDepositHook;
+
+        emit PreRequestDepositHookSet(_preRequestDepositHook);
+    }
+
+    /// @notice Sets the post-execute-deposit-request hook (`address(0)` disables the post-execute-deposit-request hook)
+    function setPostExecuteDepositRequestHook(address _postExecuteDepositRequestHook) external onlyAdminOrOwner {
+        __getDepositQueueStorage().postExecuteDepositRequestHook = _postExecuteDepositRequestHook;
+
+        emit PostExecuteDepositRequestHookSet(_postExecuteDepositRequestHook);
+    }
+
     //==================================================================================================================
     // Required: IERC7540LikeDepositHandler
     //==================================================================================================================
@@ -223,11 +244,11 @@ contract ERC7540LikeDepositQueue is
         require(_owner == msg.sender, ERC7540LikeDepositQueue__RequestDeposit__OwnerNotSender());
         require(_owner == _controller, ERC7540LikeDepositQueue__RequestDeposit__OwnerNotController());
 
-        __preIssuance({
-            _caller: msg.sender, _receiver: _controller, _onBehalf: _controller, _asset: asset(), _amount: _assets
-        });
-
         __validateDepositRequest({_controller: _controller});
+
+        __runPreRequestDepositHook({
+            _originator: msg.sender, _controller: _controller, _owner: _owner, _assetAmount: _assets
+        });
 
         uint40 canCancelTime = uint40(block.timestamp + getDepositMinRequestDuration());
 
@@ -288,11 +309,9 @@ contract ERC7540LikeDepositQueue is
             // Add to total assets deposited
             totalAssetsDeposited += request.assetAmount;
 
-            address asset = asset();
-
             // Calculate gross shares
             uint256 value =
-                valuationHandler.convertAssetAmountToValue({_asset: asset, _assetAmount: request.assetAmount});
+                valuationHandler.convertAssetAmountToValue({_asset: asset(), _assetAmount: request.assetAmount});
             uint256 grossSharesAmount =
                 ValueHelpersLib.calcSharesAmountForValue({_valuePerShare: sharePriceInValueAsset, _value: value});
             // Settle any entrance fee
@@ -307,11 +326,9 @@ contract ERC7540LikeDepositQueue is
             // Mint net shares to user
             shares.mintFor({_to: request.controller, _sharesAmount: netShares});
 
-            __postIssuance({
-                _caller: msg.sender,
-                _receiver: request.controller,
-                _onBehalf: request.controller,
-                _asset: asset,
+            __runPostExecuteDepositRequestHook({
+                _originator: msg.sender,
+                _controller: request.controller,
                 _sharesAmount: netShares,
                 _assetAmount: request.assetAmount
             });
@@ -336,6 +353,41 @@ contract ERC7540LikeDepositQueue is
     function __removeDepositRequest(uint256 _requestId) internal {
         DepositQueueStorage storage $ = __getDepositQueueStorage();
         delete $.idToRequest[_requestId];
+    }
+
+    /// @dev Runs the deposit request through the attached pre-request-deposit hook, if any. No-op when unset.
+    function __runPreRequestDepositHook(address _originator, address _controller, address _owner, uint256 _assetAmount)
+        internal
+    {
+        address hook = getPreRequestDepositHook();
+
+        if (hook == address(0)) {
+            return;
+        }
+
+        IERC7540LikeDepositQueuePreRequestDepositHook(hook)
+            .preRequestDeposit({
+            _originator: _originator, _controller: _controller, _owner: _owner, _assetAmount: _assetAmount
+        });
+    }
+
+    /// @dev Runs the deposit request through the attached post-execute-deposit-request hook, if any. No-op when unset.
+    function __runPostExecuteDepositRequestHook(
+        address _originator,
+        address _controller,
+        uint256 _sharesAmount,
+        uint256 _assetAmount
+    ) internal {
+        address hook = getPostExecuteDepositRequestHook();
+
+        if (hook == address(0)) {
+            return;
+        }
+
+        IERC7540LikeDepositQueuePostExecuteDepositRequestHook(hook)
+            .postExecuteDepositRequest({
+            _originator: _originator, _controller: _controller, _sharesAmount: _sharesAmount, _assetAmount: _assetAmount
+        });
     }
 
     //==================================================================================================================
@@ -370,5 +422,15 @@ contract ERC7540LikeDepositQueue is
     /// @notice Returns true if the account is in the internal allowed deposit controllers list
     function isInDepositControllerInternalAllowlist(address _who) public view returns (bool) {
         return __getDepositQueueStorage().isAllowedController[_who];
+    }
+
+    /// @notice Returns the hook called with deposit requests before they are committed
+    function getPreRequestDepositHook() public view returns (address) {
+        return __getDepositQueueStorage().preRequestDepositHook;
+    }
+
+    /// @notice Returns the hook called with deposit requests after they are executed
+    function getPostExecuteDepositRequestHook() public view returns (address) {
+        return __getDepositQueueStorage().postExecuteDepositRequestHook;
     }
 }

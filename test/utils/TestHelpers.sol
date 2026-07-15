@@ -17,14 +17,23 @@ import {PolicyEngine} from "@chainlink/policy-management/core/PolicyEngine.sol";
 import {PolicyEngineFactory} from "@chainlink/policy-management/core/PolicyEngineFactory.sol";
 
 import {
-    ChainlinkAcePreIssuanceValidator
-} from "src/components/issuance-validators/ChainlinkAcePreIssuanceValidator.sol";
+    ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator.sol";
 import {
-    ChainlinkAcePostIssuanceValidator
-} from "src/components/issuance-validators/ChainlinkAcePostIssuanceValidator.sol";
+    ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator.sol";
+import {
+    ChainlinkAceSyncDepositHandlerPostDepositValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSyncDepositHandlerPostDepositValidator.sol";
+import {
+    ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator.sol";
+import {
+    ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator.sol";
 import {
     ChainlinkAceIssuanceValidatorBase
-} from "src/components/issuance-validators/ChainlinkAceIssuanceValidatorBase.sol";
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceIssuanceValidatorBase.sol";
 import {
     ChainlinkAceSharesTransferValidator
 } from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
@@ -92,31 +101,82 @@ contract TestHelpers is Constants, Test {
         });
     }
 
-    function deployChainlinkAcePreIssuanceValidator(address _shares, address _handler, address _policyEngine)
-        internal
-        returns (address validator_)
-    {
-        Global global = new Global();
-        global.init({_owner: address(this)});
-
-        ComponentBeaconFactory factory = new ComponentBeaconFactory(address(global));
-        factory.setImplementation(address(new ChainlinkAcePreIssuanceValidator()));
-
-        validator_ = factory.deployProxy({
+    function deployChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator()),
             _shares: _shares,
-            _initData: abi.encodeCall(ChainlinkAceIssuanceValidatorBase.init, (_handler, _policyEngine))
+            _handler: _handler,
+            _policyEngine: _policyEngine
         });
     }
 
-    function deployChainlinkAcePostIssuanceValidator(address _shares, address _handler, address _policyEngine)
-        internal
-        returns (address validator_)
-    {
+    function deployChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator()),
+            _shares: _shares,
+            _handler: _handler,
+            _policyEngine: _policyEngine
+        });
+    }
+
+    function deployChainlinkAceSyncDepositHandlerPostDepositValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceSyncDepositHandlerPostDepositValidator()),
+            _shares: _shares,
+            _handler: _handler,
+            _policyEngine: _policyEngine
+        });
+    }
+
+    function deployChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator()),
+            _shares: _shares,
+            _handler: _handler,
+            _policyEngine: _policyEngine
+        });
+    }
+
+    function deployChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator()),
+            _shares: _shares,
+            _handler: _handler,
+            _policyEngine: _policyEngine
+        });
+    }
+
+    function __deployChainlinkAceIssuanceValidator(
+        address _implementation,
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) private returns (address validator_) {
         Global global = new Global();
         global.init({_owner: address(this)});
 
         ComponentBeaconFactory factory = new ComponentBeaconFactory(address(global));
-        factory.setImplementation(address(new ChainlinkAcePostIssuanceValidator()));
+        factory.setImplementation(_implementation);
 
         validator_ = factory.deployProxy({
             _shares: _shares,

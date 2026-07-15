@@ -14,10 +14,13 @@ pragma solidity 0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
+import {ComponentHelpersMixin} from "src/components/utils/ComponentHelpersMixin.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {IAddressList} from "src/infra/lists/address-list/IAddressList.sol";
 import {IFeeHandler} from "src/interfaces/IFeeHandler.sol";
+import {
+    ISyncDepositHandlerPostDepositHook
+} from "src/components/issuance/interfaces/ISyncDepositHandlerPostDepositHook.sol";
 import {Shares} from "src/shares/Shares.sol";
 import {StorageHelpersLib} from "src/utils/StorageHelpersLib.sol";
 import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
@@ -27,7 +30,7 @@ import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
 /// @notice A synchronous deposit handler where users deposit an ERC20 asset and immediately receive pro-rated shares
 /// @dev Considerations and limitations:
 /// - may not support irregular asset behaviors (e.g., fee-on-transfer)
-contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
+contract SyncDepositHandler is Initializable, ComponentHelpersMixin {
     using SafeERC20 for IERC20;
 
     //==================================================================================================================
@@ -48,10 +51,12 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
     /// @param asset The ERC20 asset accepted for deposits
     /// @param depositorAllowlist IAddressList contract for depositor allowlist validation (`address(0)` allows any depositor)
     /// @param maxSharePriceStaleness Maximum allowed age of the share price in seconds
+    /// @param postDepositHook A hook called with deposits after they settle (`address(0)` disables it)
     struct SyncDepositHandlerStorage {
         address asset;
         address depositorAllowlist;
         uint24 maxSharePriceStaleness;
+        address postDepositHook;
     }
 
     function __getSyncDepositHandlerStorage() private pure returns (SyncDepositHandlerStorage storage $) {
@@ -72,6 +77,8 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
     event DepositorAllowlistSet(address list);
 
     event MaxSharePriceStalenessSet(uint24 maxStaleness);
+
+    event PostDepositHookSet(address hook);
 
     //==================================================================================================================
     // Errors
@@ -130,6 +137,13 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
         emit DepositorAllowlistSet({list: _list});
     }
 
+    /// @notice Sets the post-deposit hook (`address(0)` disables the post-deposit hook)
+    function setPostDepositHook(address _postDepositHook) external onlyAdminOrOwner {
+        __getSyncDepositHandlerStorage().postDepositHook = _postDepositHook;
+
+        emit PostDepositHookSet(_postDepositHook);
+    }
+
     //==================================================================================================================
     // Deposits (access: public)
     //==================================================================================================================
@@ -158,27 +172,30 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
         __validateDepositor({_depositor: _depositor});
 
         Shares shares = Shares(__getShares());
-        ValuationHandler valuationHandler = ValuationHandler(shares.getValuationHandler());
 
-        // Get and validate share price
-        (uint256 sharePriceInValueAsset, uint256 sharePriceTimestamp) = valuationHandler.getSharePrice();
-        __validateSharePriceTimestamp({_sharePriceTimestamp: sharePriceTimestamp});
+        {
+            ValuationHandler valuationHandler = ValuationHandler(shares.getValuationHandler());
 
-        // Calculate gross shares
-        uint256 grossSharesAmount = ValueHelpersLib.calcSharesAmountForValue({
-            _valuePerShare: sharePriceInValueAsset,
-            _value: valuationHandler.convertAssetAmountToValue({_asset: getAsset(), _assetAmount: _assetAmount})
-        });
+            // Get and validate share price
+            (uint256 sharePriceInValueAsset, uint256 sharePriceTimestamp) = valuationHandler.getSharePrice();
+            __validateSharePriceTimestamp({_sharePriceTimestamp: sharePriceTimestamp});
 
-        // Settle any entrance fee
-        IFeeHandler feeHandler = IFeeHandler(shares.getFeeHandler());
-        uint256 feeSharesAmount = address(feeHandler) == address(0)
-            ? 0
-            : feeHandler.settleEntranceFeeGivenGrossShares({_grossSharesAmount: grossSharesAmount});
+            // Calculate gross shares
+            uint256 grossSharesAmount = ValueHelpersLib.calcSharesAmountForValue({
+                _valuePerShare: sharePriceInValueAsset,
+                _value: valuationHandler.convertAssetAmountToValue({_asset: getAsset(), _assetAmount: _assetAmount})
+            });
 
-        // Calculate net shares
-        sharesAmount_ = grossSharesAmount - feeSharesAmount;
-        require(sharesAmount_ > 0, SyncDepositHandler__Deposit__ZeroShares());
+            // Settle any entrance fee
+            IFeeHandler feeHandler = IFeeHandler(shares.getFeeHandler());
+            uint256 feeSharesAmount = address(feeHandler) == address(0)
+                ? 0
+                : feeHandler.settleEntranceFeeGivenGrossShares({_grossSharesAmount: grossSharesAmount});
+
+            // Calculate net shares
+            sharesAmount_ = grossSharesAmount - feeSharesAmount;
+            require(sharesAmount_ > 0, SyncDepositHandler__Deposit__ZeroShares());
+        }
 
         // Mint net shares to depositor
         shares.mintFor({_to: _depositor, _sharesAmount: sharesAmount_});
@@ -186,14 +203,7 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
         // Transfer asset from depositor directly to Shares
         IERC20(getAsset()).safeTransferFrom(_depositor, address(shares), _assetAmount);
 
-        __postIssuance({
-            _caller: msg.sender,
-            _receiver: _depositor,
-            _onBehalf: _depositor,
-            _asset: getAsset(),
-            _sharesAmount: sharesAmount_,
-            _assetAmount: _assetAmount
-        });
+        __runPostDepositHook({_originator: msg.sender, _sharesAmount: sharesAmount_, _assetAmount: _assetAmount});
 
         emit Deposit({
             depositor: _depositor, assetAmount: _assetAmount, sharesAmount: sharesAmount_, referrer: _referrer
@@ -224,6 +234,18 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
         );
     }
 
+    /// @dev Runs the deposit through the attached post-deposit hook, if any. No-op when unset.
+    function __runPostDepositHook(address _originator, uint256 _sharesAmount, uint256 _assetAmount) internal {
+        address hook = getPostDepositHook();
+
+        if (hook == address(0)) {
+            return;
+        }
+
+        ISyncDepositHandlerPostDepositHook(hook)
+            .postDeposit({_originator: _originator, _sharesAmount: _sharesAmount, _assetAmount: _assetAmount});
+    }
+
     //==================================================================================================================
     // State getters
     //==================================================================================================================
@@ -241,5 +263,10 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
     /// @notice Returns the maximum allowed share price staleness in seconds
     function getMaxSharePriceStaleness() public view returns (uint24) {
         return __getSyncDepositHandlerStorage().maxSharePriceStaleness;
+    }
+
+    /// @notice Returns the hook called with deposits after they settle
+    function getPostDepositHook() public view returns (address) {
+        return __getSyncDepositHandlerStorage().postDepositHook;
     }
 }

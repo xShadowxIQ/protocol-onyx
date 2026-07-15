@@ -14,13 +14,15 @@ pragma solidity 0.8.28;
 import {IERC20Metadata as IERC20} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {ERC7540LikeDepositQueue} from "src/components/issuance/deposit-handlers/ERC7540LikeDepositQueue.sol";
-import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
-import {PreIssuanceHookHandlerBase} from "src/components/issuance/utils/PreIssuanceHookHandlerBase.sol";
 import {ComponentHelpersMixin} from "src/components/utils/ComponentHelpersMixin.sol";
 import {IERC7540LikeDepositHandler} from "src/components/issuance/deposit-handlers/IERC7540LikeDepositHandler.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
-import {IPostIssuanceHook} from "src/interfaces/IPostIssuanceHook.sol";
-import {IPreIssuanceHook} from "src/interfaces/IPreIssuanceHook.sol";
+import {
+    IERC7540LikeDepositQueuePostExecuteDepositRequestHook
+} from "src/components/issuance/interfaces/IERC7540LikeDepositQueuePostExecuteDepositRequestHook.sol";
+import {
+    IERC7540LikeDepositQueuePreRequestDepositHook
+} from "src/components/issuance/interfaces/IERC7540LikeDepositQueuePreRequestDepositHook.sol";
 import {Shares} from "src/shares/Shares.sol";
 
 import {ERC7540LikeDepositQueueHarness} from "test/harnesses/ERC7540LikeDepositQueueHarness.sol";
@@ -634,50 +636,52 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
     // Issuance validators
     //==================================================================================================================
 
-    function test_setPreIssuanceHook_fail_notAdminOrOwner() public {
+    function test_setPreRequestDepositHook_fail_notAdminOrOwner() public {
         address randomUser = makeAddr("randomUser");
 
         vm.expectRevert(ComponentHelpersMixin.ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized.selector);
         vm.prank(randomUser);
-        depositQueue.setPreIssuanceHook(makeAddr("validator"));
+        depositQueue.setPreRequestDepositHook(makeAddr("validator"));
     }
 
-    function test_setPreIssuanceHook_success() public {
+    function test_setPreRequestDepositHook_success() public {
         address validator = makeAddr("validator");
 
         vm.expectEmit(address(depositQueue));
-        emit PreIssuanceHookHandlerBase.PreIssuanceHookSet(validator);
+        emit ERC7540LikeDepositQueue.PreRequestDepositHookSet(validator);
 
         vm.prank(admin);
-        depositQueue.setPreIssuanceHook(validator);
+        depositQueue.setPreRequestDepositHook(validator);
 
-        assertEq(depositQueue.getPreIssuanceHook(), validator, "validator not set");
+        assertEq(depositQueue.getPreRequestDepositHook(), validator, "validator not set");
     }
 
-    function test_setPostIssuanceHook_fail_notAdminOrOwner() public {
+    function test_setPostExecuteDepositRequestHook_fail_notAdminOrOwner() public {
         address randomUser = makeAddr("randomUser");
 
         vm.expectRevert(ComponentHelpersMixin.ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized.selector);
         vm.prank(randomUser);
-        depositQueue.setPostIssuanceHook(makeAddr("validator"));
+        depositQueue.setPostExecuteDepositRequestHook(makeAddr("validator"));
     }
 
-    function test_setPostIssuanceHook_success() public {
+    function test_setPostExecuteDepositRequestHook_success() public {
         address validator = makeAddr("validator");
 
         vm.expectEmit(address(depositQueue));
-        emit PostIssuanceHookHandlerBase.PostIssuanceHookSet(validator);
+        emit ERC7540LikeDepositQueue.PostExecuteDepositRequestHookSet(validator);
 
         vm.prank(admin);
-        depositQueue.setPostIssuanceHook(validator);
+        depositQueue.setPostExecuteDepositRequestHook(validator);
 
-        assertEq(depositQueue.getPostIssuanceHook(), validator, "validator not set");
+        assertEq(depositQueue.getPostExecuteDepositRequestHook(), validator, "validator not set");
     }
 
     function test_requestDeposit_hooksUnset_noValidation() public {
         // No validators set by default: issuance proceeds without any validation hook.
-        assertEq(depositQueue.getPreIssuanceHook(), address(0), "pre validator should default to address(0)");
-        assertEq(depositQueue.getPostIssuanceHook(), address(0), "post validator should default to address(0)");
+        assertEq(depositQueue.getPreRequestDepositHook(), address(0), "pre validator should default to address(0)");
+        assertEq(
+            depositQueue.getPostExecuteDepositRequestHook(), address(0), "post validator should default to address(0)"
+        );
 
         address controller = makeAddr("controller");
         __test_requestDeposit_setup({_tokenOwner: controller});
@@ -688,21 +692,22 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
         assertEq(depositQueue.getDepositRequest(requestId).assetAmount, 123, "request not created");
     }
 
-    function test_requestDeposit_callsPreIssuanceHook() public {
+    function test_requestDeposit_callsPreRequestDepositHook() public {
         address controller = makeAddr("controller");
         uint256 assets = 123;
 
         __test_requestDeposit_setup({_tokenOwner: controller});
-        address asset = depositQueue.asset();
 
-        address validator = makeAddr("preIssuanceValidator");
+        address validator = makeAddr("preDepositValidator");
         vm.prank(admin);
-        depositQueue.setPreIssuanceHook(validator);
+        depositQueue.setPreRequestDepositHook(validator);
 
-        // The handler must invoke `preIssuance(caller, receiver, onBehalf, asset, amount)`. Make the validator block
-        // to prove the call happens before any state change.
-        bytes memory expectedCall =
-            abi.encodeCall(IPreIssuanceHook.preIssuance, (controller, controller, controller, asset, assets));
+        // The handler must invoke `preRequestDeposit(originator, controller, owner, amount)`. Make the validator
+        // block to prove the call happens before any state change.
+        bytes memory expectedCall = abi.encodeCall(
+            IERC7540LikeDepositQueuePreRequestDepositHook.preRequestDeposit,
+            (controller, controller, controller, assets)
+        );
         vm.mockCallRevert(validator, expectedCall, bytes("BLOCKED"));
 
         vm.expectCall(validator, expectedCall);
@@ -712,20 +717,21 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
         depositQueue.requestDeposit({_assets: assets, _controller: controller, _owner: controller});
     }
 
-    function test_requestDepositReferred_callsPreIssuanceHook() public {
+    function test_requestDepositReferred_callsPreRequestDepositHook() public {
         address controller = makeAddr("controller");
         uint256 assets = 123;
         bytes32 referrer = "ref";
 
         __test_requestDeposit_setup({_tokenOwner: controller});
-        address asset = depositQueue.asset();
 
-        address validator = makeAddr("preIssuanceValidator");
+        address validator = makeAddr("preDepositValidator");
         vm.prank(admin);
-        depositQueue.setPreIssuanceHook(validator);
+        depositQueue.setPreRequestDepositHook(validator);
 
-        bytes memory expectedCall =
-            abi.encodeCall(IPreIssuanceHook.preIssuance, (controller, controller, controller, asset, assets));
+        bytes memory expectedCall = abi.encodeCall(
+            IERC7540LikeDepositQueuePreRequestDepositHook.preRequestDeposit,
+            (controller, controller, controller, assets)
+        );
         vm.mockCallRevert(validator, expectedCall, bytes("BLOCKED"));
 
         vm.expectCall(validator, expectedCall);
@@ -737,12 +743,12 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
         });
     }
 
-    function test_executeDepositRequests_callsPostIssuanceHook() public {
+    function test_executeDepositRequests_callsPostExecuteDepositRequestHook() public {
         ExecuteDepositSetupData memory d = __test_executeDepositRequests_setup();
 
-        address validator = makeAddr("postIssuanceValidator");
+        address validator = makeAddr("postDepositValidator");
         vm.prank(admin);
-        depositQueue.setPostIssuanceHook(validator);
+        depositQueue.setPostExecuteDepositRequestHook(validator);
 
         uint256[] memory requestIdsToExecute = new uint256[](2);
         requestIdsToExecute[0] = 1;
@@ -750,26 +756,12 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
 
         // The post hook fires per executed request with the net minted shares and the request's asset amount.
         bytes memory expectedCall1 = abi.encodeCall(
-            IPostIssuanceHook.postIssuance,
-            (
-                admin,
-                d.request1Controller,
-                d.request1Controller,
-                d.asset,
-                d.request1ExpectedSharesAmount,
-                d.request1AssetAmount
-            )
+            IERC7540LikeDepositQueuePostExecuteDepositRequestHook.postExecuteDepositRequest,
+            (admin, d.request1Controller, d.request1ExpectedSharesAmount, d.request1AssetAmount)
         );
         bytes memory expectedCall3 = abi.encodeCall(
-            IPostIssuanceHook.postIssuance,
-            (
-                admin,
-                d.request3Controller,
-                d.request3Controller,
-                d.asset,
-                d.request3ExpectedSharesAmount,
-                d.request3AssetAmount
-            )
+            IERC7540LikeDepositQueuePostExecuteDepositRequestHook.postExecuteDepositRequest,
+            (admin, d.request3Controller, d.request3ExpectedSharesAmount, d.request3AssetAmount)
         );
         vm.mockCall(validator, expectedCall1, bytes(""));
         vm.mockCall(validator, expectedCall3, bytes(""));

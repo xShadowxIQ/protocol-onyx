@@ -1,0 +1,13 @@
+ChainlinkAceIssuanceValidatorBaseTest
+├── When initializing
+│   ├── When the handler is the zero address
+│   │   └── It should revert with {ChainlinkAceIssuanceValidatorBase__Init__EmptyHandler}.
+│   ├── When the policy engine is the zero address
+│   │   ├── It should store the handler.
+│   │   └── It should initialize with no engine attached (enforcement disabled).
+│   └── When both the handler and the policy engine are non-zero addresses
+│       ├── It should store the handler.
+│       ├── It should attach the validator to the policy engine.
+│       └── It should store the policy engine as the attached engine.
+└── When getting the handler
+    └── It should return the stored handler.

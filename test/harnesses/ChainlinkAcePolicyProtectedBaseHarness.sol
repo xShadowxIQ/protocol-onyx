@@ -12,9 +12,14 @@
 pragma solidity ^0.8.0;
 
 import {ChainlinkAcePolicyProtectedBase} from "src/infra/chainlink-ace/ChainlinkAcePolicyProtectedBase.sol";
+import {ComponentHarnessMixin} from "test/harnesses/utils/ComponentHarnessMixin.sol";
 
-contract ChainlinkAcePolicyProtectedBaseHarness is ChainlinkAcePolicyProtectedBase {
-    function exposed__ChainlinkAcePolicyProtectedBase_init(address _policyEngine) external initializer {
-        __ChainlinkAcePolicyProtectedBase_init(_policyEngine);
+contract ChainlinkAcePolicyProtectedBaseHarness is ChainlinkAcePolicyProtectedBase, ComponentHarnessMixin {
+    constructor(address _shares) ComponentHarnessMixin(_shares) {}
+
+    function exposed__PolicyProtectedFlexible_init(address _policyEngine) external initializer {
+        __PolicyProtectedFlexible_init(_policyEngine);
     }
+
+    function exposed_protectedAction(uint256 _value) external runPolicy {}
 }

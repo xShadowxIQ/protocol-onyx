@@ -16,10 +16,14 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC7540LikeRedeemHandler} from "src/components/issuance/redeem-handlers/IERC7540LikeRedeemHandler.sol";
 import {ERC7540LikeIssuanceBase} from "src/components/issuance/utils/ERC7540LikeIssuanceBase.sol";
-import {PostIssuanceHookHandlerBase} from "src/components/issuance/utils/PostIssuanceHookHandlerBase.sol";
-import {PreIssuanceHookHandlerBase} from "src/components/issuance/utils/PreIssuanceHookHandlerBase.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {IFeeHandler} from "src/interfaces/IFeeHandler.sol";
+import {
+    IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook
+} from "src/components/issuance/interfaces/IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook.sol";
+import {
+    IERC7540LikeRedeemQueuePreRequestRedeemHook
+} from "src/components/issuance/interfaces/IERC7540LikeRedeemQueuePreRequestRedeemHook.sol";
 import {Shares} from "src/shares/Shares.sol";
 import {StorageHelpersLib} from "src/utils/StorageHelpersLib.sol";
 import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
@@ -29,12 +33,7 @@ import {ValueHelpersLib} from "src/utils/ValueHelpersLib.sol";
 /// @notice A IERC7540LikeRedeemHandler implementation that manages requests as an ordered queue
 /// @dev Does not enforce request execution in any particular order. If desired, this must be done peripherally.
 /// Does not validate the sharePrice() timestamp.
-contract ERC7540LikeRedeemQueue is
-    IERC7540LikeRedeemHandler,
-    ERC7540LikeIssuanceBase,
-    PreIssuanceHookHandlerBase,
-    PostIssuanceHookHandlerBase
-{
+contract ERC7540LikeRedeemQueue is IERC7540LikeRedeemHandler, ERC7540LikeIssuanceBase {
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
 
@@ -63,10 +62,14 @@ contract ERC7540LikeRedeemQueue is
     /// @param lastId Incrementing id for the most recent request (starts from `1`)
     /// @param minRequestDuration The minimum time between a request and the ability to cancel it
     /// @param idToRequest Mapping of request id to RedeemRequestInfo
+    /// @param preRequestRedeemHook A hook called with redeem requests before they are committed (`address(0)` disables it)
+    /// @param postExecuteRedeemRequestHook A hook called with redeem requests after they are executed (`address(0)` disables it)
     struct RedeemQueueStorage {
         uint128 lastId;
         uint24 minRequestDuration;
         mapping(uint256 => RedeemRequestInfo) idToRequest;
+        address preRequestRedeemHook;
+        address postExecuteRedeemRequestHook;
     }
 
     function __getRedeemQueueStorage() private pure returns (RedeemQueueStorage storage $) {
@@ -81,6 +84,10 @@ contract ERC7540LikeRedeemQueue is
     //==================================================================================================================
 
     event RedeemMinRequestDurationSet(uint24 minRequestDuration);
+
+    event PreRequestRedeemHookSet(address hook);
+
+    event PostExecuteRedeemRequestHookSet(address hook);
 
     //==================================================================================================================
     // Errors
@@ -118,6 +125,20 @@ contract ERC7540LikeRedeemQueue is
         emit RedeemMinRequestDurationSet({minRequestDuration: _minRequestDuration});
     }
 
+    /// @notice Sets the pre-request-redeem hook (`address(0)` disables the pre-request-redeem hook)
+    function setPreRequestRedeemHook(address _preRequestRedeemHook) external onlyAdminOrOwner {
+        __getRedeemQueueStorage().preRequestRedeemHook = _preRequestRedeemHook;
+
+        emit PreRequestRedeemHookSet(_preRequestRedeemHook);
+    }
+
+    /// @notice Sets the post-execute-redeem-request hook (`address(0)` disables the post-execute-redeem-request hook)
+    function setPostExecuteRedeemRequestHook(address _postExecuteRedeemRequestHook) external onlyAdminOrOwner {
+        __getRedeemQueueStorage().postExecuteRedeemRequestHook = _postExecuteRedeemRequestHook;
+
+        emit PostExecuteRedeemRequestHookSet(_postExecuteRedeemRequestHook);
+    }
+
     //==================================================================================================================
     // Required: IERC7540LikeRedeemHandler
     //==================================================================================================================
@@ -152,8 +173,8 @@ contract ERC7540LikeRedeemQueue is
         require(_owner == _controller, ERC7540LikeRedeemQueue__RequestRedeem__OwnerNotController());
         require(_shares > 0, ERC7540LikeRedeemQueue__RequestRedeem__ZeroShares());
 
-        __preIssuance({
-            _caller: msg.sender, _receiver: _controller, _onBehalf: _controller, _asset: asset(), _amount: _shares
+        __runPreRequestRedeemHook({
+            _originator: msg.sender, _controller: _controller, _owner: _owner, _sharesAmount: _shares
         });
 
         uint40 canCancelTime = uint40(block.timestamp + getRedeemMinRequestDuration());
@@ -211,11 +232,9 @@ contract ERC7540LikeRedeemQueue is
             // Send asset to the user
             shares.withdrawAssetTo({_asset: asset(), _to: request.controller, _amount: userAssets});
 
-            __postIssuance({
-                _caller: msg.sender,
-                _receiver: request.controller,
-                _onBehalf: request.controller,
-                _asset: asset(),
+            __runPostExecuteRedeemRequestHook({
+                _originator: msg.sender,
+                _controller: request.controller,
                 _sharesAmount: request.sharesAmount,
                 _assetAmount: userAssets
             });
@@ -243,6 +262,41 @@ contract ERC7540LikeRedeemQueue is
         delete $.idToRequest[_requestId];
     }
 
+    /// @dev Runs the redeem request through the attached pre-request-redeem hook, if any. No-op when unset.
+    function __runPreRequestRedeemHook(address _originator, address _controller, address _owner, uint256 _sharesAmount)
+        internal
+    {
+        address hook = getPreRequestRedeemHook();
+
+        if (hook == address(0)) {
+            return;
+        }
+
+        IERC7540LikeRedeemQueuePreRequestRedeemHook(hook)
+            .preRequestRedeem({
+            _originator: _originator, _controller: _controller, _owner: _owner, _sharesAmount: _sharesAmount
+        });
+    }
+
+    /// @dev Runs the redeem request through the attached post-execute-redeem-request hook, if any. No-op when unset.
+    function __runPostExecuteRedeemRequestHook(
+        address _originator,
+        address _controller,
+        uint256 _sharesAmount,
+        uint256 _assetAmount
+    ) internal {
+        address hook = getPostExecuteRedeemRequestHook();
+
+        if (hook == address(0)) {
+            return;
+        }
+
+        IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook(hook)
+            .postExecuteRedeemRequest({
+            _originator: _originator, _controller: _controller, _sharesAmount: _sharesAmount, _assetAmount: _assetAmount
+        });
+    }
+
     //==================================================================================================================
     // State getters
     //==================================================================================================================
@@ -260,5 +314,15 @@ contract ERC7540LikeRedeemQueue is
     /// @notice Returns the redeem request for a given id
     function getRedeemRequest(uint256 _requestId) public view returns (RedeemRequestInfo memory) {
         return __getRedeemQueueStorage().idToRequest[_requestId];
+    }
+
+    /// @notice Returns the hook called with redeem requests before they are committed
+    function getPreRequestRedeemHook() public view returns (address) {
+        return __getRedeemQueueStorage().preRequestRedeemHook;
+    }
+
+    /// @notice Returns the hook called with redeem requests after they are executed
+    function getPostExecuteRedeemRequestHook() public view returns (address) {
+        return __getRedeemQueueStorage().postExecuteRedeemRequestHook;
     }
 }
