@@ -24,6 +24,8 @@ import {CreWorkflowConsumer} from "src/components/automations/chainlink-cre/CreW
 import {SharesOwnedAddressList} from "src/components/lists/SharesOwnedAddressList.sol";
 import {OwnableAddressList} from "src/infra/lists/address-list/OwnableAddressList.sol";
 import {SyncDepositHandler} from "src/components/issuance/deposit-handlers/SyncDepositHandler.sol";
+import {SharesMintHandler} from "src/components/issuance/deposit-handlers/SharesMintHandler.sol";
+import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesBurnHandler.sol";
 import {
     AddressListsSharesTransferValidator
 } from "src/components/shares-transfer-validators/AddressListsSharesTransferValidator.sol";
@@ -51,6 +53,8 @@ contract DeployProtocol is Script {
         ComponentBeaconFactory creWorkflowConsumerFactory;
         ComponentBeaconFactory sharesOwnedAddressListFactory;
         ComponentBeaconFactory syncDepositHandlerFactory;
+        ComponentBeaconFactory sharesMintHandlerFactory;
+        ComponentBeaconFactory sharesBurnHandlerFactory;
         ComponentBeaconFactory addressListsSharesTransferValidatorFactory;
         Shares shares;
         FeeHandler feeHandler;
@@ -66,6 +70,8 @@ contract DeployProtocol is Script {
         SharesOwnedAddressList sharesOwnedAddressList;
         OwnableAddressList ownableAddressList;
         SyncDepositHandler syncDepositHandler;
+        SharesMintHandler sharesMintHandler;
+        SharesBurnHandler sharesBurnHandler;
         AddressListsSharesTransferValidator addressListsSharesTransferValidator;
         SharesDeployer sharesDeployer;
     }
@@ -110,6 +116,8 @@ contract DeployProtocol is Script {
         }
         addrs.sharesOwnedAddressListFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
         addrs.syncDepositHandlerFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.sharesMintHandlerFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.sharesBurnHandlerFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
         addrs.addressListsSharesTransferValidatorFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
 
         /* ---------------------------------------------------------------------
@@ -131,6 +139,8 @@ contract DeployProtocol is Script {
         addrs.sharesOwnedAddressList = new SharesOwnedAddressList();
         addrs.ownableAddressList = new OwnableAddressList();
         addrs.syncDepositHandler = new SyncDepositHandler();
+        addrs.sharesMintHandler = new SharesMintHandler();
+        addrs.sharesBurnHandler = new SharesBurnHandler();
         addrs.addressListsSharesTransferValidator = new AddressListsSharesTransferValidator();
 
         /* ---------------------------------------------------------------------
@@ -156,6 +166,8 @@ contract DeployProtocol is Script {
         addrs.sharesOwnedAddressListFactory.setImplementation(address(addrs.sharesOwnedAddressList));
         addrs.ownableAddressListFactory.setImplementation(address(addrs.ownableAddressList));
         addrs.syncDepositHandlerFactory.setImplementation(address(addrs.syncDepositHandler));
+        addrs.sharesMintHandlerFactory.setImplementation(address(addrs.sharesMintHandler));
+        addrs.sharesBurnHandlerFactory.setImplementation(address(addrs.sharesBurnHandler));
         addrs.addressListsSharesTransferValidatorFactory
             .setImplementation(address(addrs.addressListsSharesTransferValidator));
 
@@ -212,6 +224,8 @@ contract DeployProtocol is Script {
         vm.serializeAddress(key, "SharesOwnedAddressListFactory", address(addrs.sharesOwnedAddressListFactory));
         vm.serializeAddress(key, "OwnableAddressListFactory", address(addrs.ownableAddressListFactory));
         vm.serializeAddress(key, "SyncDepositHandlerFactory", address(addrs.syncDepositHandlerFactory));
+        vm.serializeAddress(key, "SharesMintHandlerFactory", address(addrs.sharesMintHandlerFactory));
+        vm.serializeAddress(key, "SharesBurnHandlerFactory", address(addrs.sharesBurnHandlerFactory));
         vm.serializeAddress(
             key, "AddressListsSharesTransferValidatorFactory", address(addrs.addressListsSharesTransferValidatorFactory)
         );
@@ -234,6 +248,8 @@ contract DeployProtocol is Script {
         vm.serializeAddress(key, "SharesOwnedAddressListLib", address(addrs.sharesOwnedAddressList));
         vm.serializeAddress(key, "OwnableAddressListLib", address(addrs.ownableAddressList));
         vm.serializeAddress(key, "SyncDepositHandlerLib", address(addrs.syncDepositHandler));
+        vm.serializeAddress(key, "SharesMintHandlerLib", address(addrs.sharesMintHandler));
+        vm.serializeAddress(key, "SharesBurnHandlerLib", address(addrs.sharesBurnHandler));
         vm.serializeAddress(
             key, "AddressListsSharesTransferValidatorLib", address(addrs.addressListsSharesTransferValidator)
         );

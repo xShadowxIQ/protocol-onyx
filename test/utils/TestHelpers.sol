@@ -32,6 +32,12 @@ import {
     ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator.sol";
 import {
+    ChainlinkAceSharesMintHandlerPreMintValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesMintHandlerPreMintValidator.sol";
+import {
+    ChainlinkAceSharesBurnHandlerPreBurnValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesBurnHandlerPreBurnValidator.sol";
+import {
     ChainlinkAceIssuanceValidatorBase
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceIssuanceValidatorBase.sol";
 import {
@@ -160,6 +166,32 @@ contract TestHelpers is Constants, Test {
     ) internal returns (address validator_) {
         return __deployChainlinkAceIssuanceValidator({
             _implementation: address(new ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator()),
+            _shares: _shares,
+            _handler: _handler,
+            _policyEngine: _policyEngine
+        });
+    }
+
+    function deployChainlinkAceSharesMintHandlerPreMintValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceSharesMintHandlerPreMintValidator()),
+            _shares: _shares,
+            _handler: _handler,
+            _policyEngine: _policyEngine
+        });
+    }
+
+    function deployChainlinkAceSharesBurnHandlerPreBurnValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceSharesBurnHandlerPreBurnValidator()),
             _shares: _shares,
             _handler: _handler,
             _policyEngine: _policyEngine

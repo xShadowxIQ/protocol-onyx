@@ -1,0 +1,24 @@
+SharesBurnHandlerTest
+├── When setting the pre-burn hook
+│   ├── When the hook setter is not the admin or owner
+│   │   └── It should revert with {ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized}.
+│   └── When the hook setter is the admin or owner
+│       ├── It should store the pre-burn hook.
+│       └── It should emit {PreBurnHookSet}.
+└── When burning shares
+    ├── When the burn caller is not the admin or owner
+    │   └── It should revert with {ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized}.
+    └── When the burn caller is the admin or owner
+        ├── Given the handler is not registered as a redeem handler
+        │   └── It should revert with {Shares__OnlyRedeemHandler__Unauthorized}.
+        └── Given the handler is registered as a redeem handler
+            ├── When any input has a zero shares amount
+            │   └── It should revert with {SharesBurnHandler__Burn__ZeroShares}.
+            └── When all inputs have a non-zero shares amount
+                ├── Given no pre-burn hook is set
+                │   ├── It should burn the shares amount from each holder.
+                │   └── It should emit {SharesBurned} per input.
+                └── Given a pre-burn hook is set
+                    ├── It should call the pre-burn hook per input with the caller, holder, and shares amount.
+                    ├── It should burn the shares amount from each holder.
+                    └── It should emit {SharesBurned} per input.

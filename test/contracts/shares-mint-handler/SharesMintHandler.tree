@@ -1,0 +1,24 @@
+SharesMintHandlerTest
+├── When setting the pre-mint hook
+│   ├── When the hook setter is not the admin or owner
+│   │   └── It should revert with {ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized}.
+│   └── When the hook setter is the admin or owner
+│       ├── It should store the pre-mint hook.
+│       └── It should emit {PreMintHookSet}.
+└── When minting shares
+    ├── When the mint caller is not the admin or owner
+    │   └── It should revert with {ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized}.
+    └── When the mint caller is the admin or owner
+        ├── Given the handler is not registered as a deposit handler
+        │   └── It should revert with {Shares__OnlyDepositHandler__Unauthorized}.
+        └── Given the handler is registered as a deposit handler
+            ├── When any input has a zero shares amount
+            │   └── It should revert with {SharesMintHandler__Mint__ZeroShares}.
+            └── When all inputs have a non-zero shares amount
+                ├── Given no pre-mint hook is set
+                │   ├── It should mint the shares amount to each recipient.
+                │   └── It should emit {SharesMinted} per input.
+                └── Given a pre-mint hook is set
+                    ├── It should call the pre-mint hook per input with the caller, recipient, and shares amount.
+                    ├── It should mint the shares amount to each recipient.
+                    └── It should emit {SharesMinted} per input.
