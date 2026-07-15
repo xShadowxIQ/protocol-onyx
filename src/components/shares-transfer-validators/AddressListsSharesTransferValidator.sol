@@ -115,7 +115,16 @@ contract AddressListsSharesTransferValidator is ISharesTransferValidator, Compon
     //==================================================================================================================
 
     /// @inheritdoc ISharesTransferValidator
-    function validateSharesTransfer(address _from, address _to, uint256) external view override {
+    function validateSharesTransfer(
+        address, /* _originator */
+        address _from,
+        address _to,
+        uint256
+    )
+        external
+        view
+        override
+    {
         __validateSender(_from);
         __validateRecipient(_to);
     }

@@ -41,7 +41,16 @@ contract ChainlinkAceSharesTransferValidator is
     //==================================================================================================================
 
     /// @inheritdoc ISharesTransferValidator
-    function validateSharesTransfer(address _from, address _to, uint256 _amount) external override onlyShares {
+    function validateSharesTransfer(
+        address, /* _originator */
+        address _from,
+        address _to,
+        uint256 _amount
+    )
+        external
+        override
+        onlyShares
+    {
         IPolicyEngine engine = IPolicyEngine(getPolicyEngine());
 
         engine.run(

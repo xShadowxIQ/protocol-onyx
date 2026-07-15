@@ -200,24 +200,24 @@ contract Shares is ERC20Upgradeable, Ownable2StepUpgradeable {
 
     /// @notice Standard ERC20 transfer of shares
     function transfer(address _to, uint256 _amount) public override returns (bool) {
-        __validateSharesTransfer({_from: msg.sender, _to: _to, _amount: _amount});
+        __validateSharesTransfer({_originator: msg.sender, _from: msg.sender, _to: _to, _amount: _amount});
 
         return super.transfer(_to, _amount);
     }
 
     /// @notice Standard ERC20 transferFrom of shares
     function transferFrom(address _from, address _to, uint256 _amount) public override returns (bool) {
-        __validateSharesTransfer({_from: _from, _to: _to, _amount: _amount});
+        __validateSharesTransfer({_originator: msg.sender, _from: _from, _to: _to, _amount: _amount});
 
         return super.transferFrom(_from, _to, _amount);
     }
 
-    function __validateSharesTransfer(address _from, address _to, uint256 _amount) internal {
+    function __validateSharesTransfer(address _originator, address _from, address _to, uint256 _amount) internal {
         address sharesTransferValidator = getSharesTransferValidator();
 
         if (sharesTransferValidator != address(0)) {
             ISharesTransferValidator(sharesTransferValidator)
-                .validateSharesTransfer({_from: _from, _to: _to, _amount: _amount});
+                .validateSharesTransfer({_originator: _originator, _from: _from, _to: _to, _amount: _amount});
         }
     }
 

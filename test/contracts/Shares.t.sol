@@ -470,6 +470,9 @@ contract SharesTest is Test, TestHelpers {
         uint256 amount = 100;
         deal({token: address(shares), to: from, give: amount, adjust: true});
 
+        // The originator is `from` for transfer(), and the spender (this test contract) for transferFrom()
+        address expectedOriginator = _transferFrom ? address(this) : from;
+
         // Set an arbitrary transfer validator that will always pass
         if (_hasValidator) {
             address transferValidator = address(new BlankSharesTransferValidator());
@@ -479,7 +482,9 @@ contract SharesTest is Test, TestHelpers {
             // Pre-assert expected call
             vm.expectCall({
                 callee: transferValidator,
-                data: abi.encodeWithSelector(ISharesTransferValidator.validateSharesTransfer.selector, from, to, amount)
+                data: abi.encodeWithSelector(
+                    ISharesTransferValidator.validateSharesTransfer.selector, expectedOriginator, from, to, amount
+                )
             });
         }
 

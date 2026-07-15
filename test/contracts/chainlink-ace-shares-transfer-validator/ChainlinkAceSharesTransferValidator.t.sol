@@ -28,6 +28,8 @@ contract ChainlinkAceSharesTransferValidatorTest is TestHelpers {
     address policyEngine;
     ChainlinkAceSharesTransferValidatorHarness validator;
 
+    // The originator is accepted and ignored by the validator; the payload is built from the transfer args
+    address originator = makeAddr("originator");
     address from = makeAddr("from");
     address to = makeAddr("to");
     uint256 amount = 123;
@@ -77,7 +79,7 @@ contract ChainlinkAceSharesTransferValidatorTest is TestHelpers {
         );
 
         vm.prank(notShares);
-        validator.validateSharesTransfer(from, to, amount);
+        validator.validateSharesTransfer(originator, from, to, amount);
     }
 
     modifier whenTheCallerIsTheSharesContract() {
@@ -99,7 +101,7 @@ contract ChainlinkAceSharesTransferValidatorTest is TestHelpers {
         vm.expectCall(policyEngine, abi.encodeCall(IPolicyEngine.run, (expectedPayload)));
 
         vm.prank(address(shares));
-        validator.validateSharesTransfer(from, to, amount);
+        validator.validateSharesTransfer(originator, from, to, amount);
     }
 
     function test_GivenThePolicyEngineRejectsTheRun()
@@ -120,7 +122,7 @@ contract ChainlinkAceSharesTransferValidatorTest is TestHelpers {
         vm.expectRevert(rejection, policyEngine);
 
         vm.prank(address(shares));
-        validator.validateSharesTransfer(from, to, amount);
+        validator.validateSharesTransfer(originator, from, to, amount);
     }
 
     function test_GivenThePolicyEngineAllowsTheRun()
@@ -131,7 +133,7 @@ contract ChainlinkAceSharesTransferValidatorTest is TestHelpers {
         // Real engine deployed with defaultAllow=true and no policies allows the run.
         // It should not revert.
         vm.prank(address(shares));
-        validator.validateSharesTransfer(from, to, amount);
+        validator.validateSharesTransfer(originator, from, to, amount);
     }
 
     function test_ShouldCallThePolicyEngineWithEmptyContext()
@@ -147,6 +149,6 @@ contract ChainlinkAceSharesTransferValidatorTest is TestHelpers {
         vm.expectCall(policyEngine, abi.encodeCall(IPolicyEngine.run, (expectedPayload)));
 
         vm.prank(address(shares));
-        validator.validateSharesTransfer(from, to, amount);
+        validator.validateSharesTransfer(originator, from, to, amount);
     }
 }

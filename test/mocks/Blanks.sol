@@ -48,5 +48,5 @@ contract BlankPositionTracker is IPositionTracker {
 }
 
 contract BlankSharesTransferValidator is ISharesTransferValidator {
-    function validateSharesTransfer(address _from, address _to, uint256 _amount) external {}
+    function validateSharesTransfer(address _originator, address _from, address _to, uint256 _amount) external {}
 }

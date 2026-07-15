@@ -34,6 +34,9 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
     address listAddress;
     address listItem = makeAddr("listItem");
 
+    // The originator is ignored by the validator; list checks apply to sender and recipient only
+    address originator = makeAddr("originator");
+
     AddressListsSharesTransferValidatorHarness validator;
 
     function setUp() public {
@@ -256,7 +259,7 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
             .selector
         );
 
-        validator.validateSharesTransfer(badSender, recipient, 123);
+        validator.validateSharesTransfer(originator, badSender, recipient, 123);
     }
 
     function test_validateSharesTransfer_success_senderAllowlist_senderInList() public {
@@ -267,7 +270,7 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
         address recipient = makeAddr("recipient");
 
         // Should not revert
-        validator.validateSharesTransfer(goodSender, recipient, 123);
+        validator.validateSharesTransfer(originator, goodSender, recipient, 123);
     }
 
     // -- Sender disallowlist (blocklist) --
@@ -284,7 +287,7 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
             .selector
         );
 
-        validator.validateSharesTransfer(badSender, recipient, 123);
+        validator.validateSharesTransfer(originator, badSender, recipient, 123);
     }
 
     function test_validateSharesTransfer_success_senderDisallowlist_senderNotInList() public {
@@ -295,7 +298,7 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
         address recipient = makeAddr("recipient");
 
         // Should not revert (sender not in disallowlist)
-        validator.validateSharesTransfer(goodSender, recipient, 123);
+        validator.validateSharesTransfer(originator, goodSender, recipient, 123);
     }
 
     // -- Recipient allowlist --
@@ -312,7 +315,7 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
                 .selector
         );
 
-        validator.validateSharesTransfer(sender, badRecipient, 123);
+        validator.validateSharesTransfer(originator, sender, badRecipient, 123);
     }
 
     function test_validateSharesTransfer_success_recipientAllowlist_recipientInList() public {
@@ -323,7 +326,7 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
         address goodRecipient = listItem;
 
         // Should not revert
-        validator.validateSharesTransfer(sender, goodRecipient, 123);
+        validator.validateSharesTransfer(originator, sender, goodRecipient, 123);
     }
 
     // -- Recipient disallowlist (blocklist) --
@@ -342,7 +345,7 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
                 .selector
         );
 
-        validator.validateSharesTransfer(sender, badRecipient, 123);
+        validator.validateSharesTransfer(originator, sender, badRecipient, 123);
     }
 
     function test_validateSharesTransfer_success_recipientDisallowlist_recipientNotInList() public {
@@ -355,6 +358,6 @@ contract AddressListsSharesTransferValidatorTest is Test, TestHelpers {
         address goodRecipient = makeAddr("goodRecipient");
 
         // Should not revert (recipient not in disallowlist)
-        validator.validateSharesTransfer(sender, goodRecipient, 123);
+        validator.validateSharesTransfer(originator, sender, goodRecipient, 123);
     }
 }
