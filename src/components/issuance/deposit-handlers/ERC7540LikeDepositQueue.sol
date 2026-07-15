@@ -298,16 +298,12 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
         (uint256 sharePriceInValueAsset,) = valuationHandler.getSharePrice();
 
         // Fulfill requests
-        uint256 totalAssetsDeposited;
         for (uint256 i; i < _requestIds.length; i++) {
             uint128 requestId = _requestIds[i].toUint128();
             DepositRequestInfo memory request = getDepositRequest({_requestId: requestId});
 
             // Remove request
             __removeDepositRequest({_requestId: requestId});
-
-            // Add to total assets deposited
-            totalAssetsDeposited += request.assetAmount;
 
             // Calculate gross shares
             uint256 value =
@@ -326,6 +322,9 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
             // Mint net shares to user
             shares.mintFor({_to: request.controller, _sharesAmount: netShares});
 
+            // Send the deposit asset amount to Shares
+            IERC20(asset()).safeTransfer(address(shares), request.assetAmount);
+
             __runPostExecuteDepositRequestHook({
                 _originator: msg.sender,
                 _controller: request.controller,
@@ -340,9 +339,6 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
 
             emit DepositRequestExecuted({requestId: requestId, sharesAmount: netShares});
         }
-
-        // Send the total deposit asset amount to Shares
-        IERC20(asset()).safeTransfer(address(shares), totalAssetsDeposited);
     }
 
     //==================================================================================================================

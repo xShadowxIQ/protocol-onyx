@@ -772,4 +772,101 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
         vm.prank(admin);
         depositQueue.executeDepositRequests({_requestIds: requestIdsToExecute});
     }
+
+    function test_executeDepositRequests_settledStateAtHookTime() public {
+        ExecuteDepositSetupData memory d = __test_executeDepositRequests_setup();
+
+        // Record any pre-existing Shares asset balance (should be 0, but be robust)
+        uint256 preExistingSharesAssetBalance = IERC20(d.asset).balanceOf(address(shares));
+
+        // Set a recording hook that captures settled state at the moment it fires per request
+        RecordingDepositPostExecuteHook recordingHook =
+            new RecordingDepositPostExecuteHook({_shares: address(shares), _asset: d.asset});
+        vm.prank(admin);
+        depositQueue.setPostExecuteDepositRequestHook(address(recordingHook));
+
+        // Execute requests 1 then 3
+        uint256[] memory requestIdsToExecute = new uint256[](2);
+        requestIdsToExecute[0] = 1;
+        requestIdsToExecute[1] = 3;
+
+        vm.prank(admin);
+        depositQueue.executeDepositRequests({_requestIds: requestIdsToExecute});
+
+        assertEq(recordingHook.getRecordsCount(), 2, "unexpected number of hook calls");
+
+        // Request 1's hook: request 1 must be fully settled (its assets in Shares, its shares minted),
+        // and request 3 must NOT yet be settled (its assets not yet in Shares).
+        RecordingDepositPostExecuteHook.Record memory record1 = recordingHook.getRecord(0);
+        assertEq(record1.controller, d.request1Controller, "record 1: wrong controller");
+        assertEq(
+            record1.sharesAssetBalance,
+            preExistingSharesAssetBalance + d.request1AssetAmount,
+            "record 1: Shares asset balance not settled to cumulative sum of requests 1..1"
+        );
+        assertEq(
+            record1.controllerSharesBalance,
+            d.request1ExpectedSharesAmount,
+            "record 1: controller does not yet hold minted shares at hook time"
+        );
+
+        // Request 3's hook: cumulative assets of requests 1..3 (of those executed) are now in Shares.
+        RecordingDepositPostExecuteHook.Record memory record3 = recordingHook.getRecord(1);
+        assertEq(record3.controller, d.request3Controller, "record 3: wrong controller");
+        assertEq(
+            record3.sharesAssetBalance,
+            preExistingSharesAssetBalance + d.request1AssetAmount + d.request3AssetAmount,
+            "record 3: Shares asset balance not settled to cumulative sum of requests 1..3"
+        );
+        assertEq(
+            record3.controllerSharesBalance,
+            d.request3ExpectedSharesAmount,
+            "record 3: controller does not yet hold minted shares at hook time"
+        );
+    }
+}
+
+/// @dev Records settled on-chain state (Shares asset balance and controller share balance) at the moment
+/// the post-execute deposit hook fires, so tests can assert per-request settlement ordering.
+contract RecordingDepositPostExecuteHook is IERC7540LikeDepositQueuePostExecuteDepositRequestHook {
+    struct Record {
+        address controller;
+        uint256 sharesAssetBalance;
+        uint256 controllerSharesBalance;
+    }
+
+    address internal immutable SHARES;
+    address internal immutable ASSET;
+    Record[] internal records;
+
+    constructor(address _shares, address _asset) {
+        SHARES = _shares;
+        ASSET = _asset;
+    }
+
+    function postExecuteDepositRequest(
+        address, /* _originator */
+        address _controller,
+        uint256, /* _sharesAmount */
+        uint256 /* _assetAmount */
+    )
+        external
+        override
+    {
+        records.push(
+            Record({
+                controller: _controller,
+                sharesAssetBalance: IERC20(ASSET).balanceOf(SHARES),
+                controllerSharesBalance: IERC20(SHARES).balanceOf(_controller)
+            })
+        );
+    }
+
+    function getRecordsCount() external view returns (uint256) {
+        return records.length;
+    }
+
+    function getRecord(uint256 _index) external view returns (Record memory) {
+        return records[_index];
+    }
 }
