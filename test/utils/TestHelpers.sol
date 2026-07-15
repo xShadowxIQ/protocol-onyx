@@ -41,6 +41,16 @@ import {BlankFeeHandler, BlankPositionTracker} from "test/mocks/Blanks.sol";
 import {Constants} from "test/utils/Constants.sol";
 
 contract TestHelpers is Constants, Test {
+    // OZ Initializable storage location (erc7201:openzeppelin.storage.Initializable)
+    bytes32 internal constant INITIALIZABLE_STORAGE_LOCATION =
+        0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+
+    /// @dev Re-enables initializers on a directly-deployed implementation, whose constructor
+    /// calls `_disableInitializers()`. Tests init such contracts directly rather than via a proxy.
+    function reenableInitializers(address _contract) internal {
+        vm.store(_contract, INITIALIZABLE_STORAGE_LOCATION, bytes32(0));
+    }
+
     function createShares() internal returns (Shares shares_) {
         address owner = makeAddr("owner");
         string memory name = "Test Shares";
@@ -48,6 +58,7 @@ contract TestHelpers is Constants, Test {
         bytes32 valueAsset = keccak256("USD");
 
         shares_ = new Shares();
+        reenableInitializers(address(shares_));
         shares_.init({_owner: owner, _name: name, _symbol: symbol, _valueAsset: valueAsset});
     }
 

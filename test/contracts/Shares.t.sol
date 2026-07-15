@@ -23,7 +23,7 @@ import {BlankFeeHandler, BlankSharesTransferValidator} from "test/mocks/Blanks.s
 import {MockERC20} from "test/mocks/MockERC20.sol";
 import {TestHelpers} from "test/utils/TestHelpers.sol";
 
-contract SharesInitTest is Test {
+contract SharesInitTest is TestHelpers {
     struct TestInitParams {
         address owner;
         string name;
@@ -34,8 +34,13 @@ contract SharesInitTest is Test {
     TestInitParams testInitParams =
         TestInitParams({owner: makeAddr("owner"), name: "Test Shares", symbol: "TST", valueAsset: keccak256("USD")});
 
+    function __deployShares() internal returns (Shares shares_) {
+        shares_ = new Shares();
+        reenableInitializers(address(shares_));
+    }
+
     function test_init_fail_calledTwice() public {
-        Shares shares = new Shares();
+        Shares shares = __deployShares();
 
         shares.init({
             _owner: testInitParams.owner,
@@ -54,7 +59,7 @@ contract SharesInitTest is Test {
     }
 
     function test_init_fail_noName() public {
-        Shares shares = new Shares();
+        Shares shares = __deployShares();
 
         vm.expectRevert(Shares.Shares__Init__EmptyName.selector);
         shares.init({
@@ -66,7 +71,7 @@ contract SharesInitTest is Test {
     }
 
     function test_init_fail_noSymbol() public {
-        Shares shares = new Shares();
+        Shares shares = __deployShares();
 
         vm.expectRevert(Shares.Shares__Init__EmptySymbol.selector);
         shares.init({
@@ -78,7 +83,7 @@ contract SharesInitTest is Test {
     }
 
     function test_init_success() public {
-        Shares shares = new Shares();
+        Shares shares = __deployShares();
 
         address owner = testInitParams.owner;
         string memory name = testInitParams.name;

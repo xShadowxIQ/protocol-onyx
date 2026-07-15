@@ -168,6 +168,8 @@ contract Shares is ERC20Upgradeable, Ownable2StepUpgradeable {
         StorageHelpersLib.verifyErc7201LocationForId({
             _location: SHARES_STORAGE_LOCATION, _id: SHARES_STORAGE_LOCATION_ID
         });
+
+        _disableInitializers();
     }
 
     //==================================================================================================================

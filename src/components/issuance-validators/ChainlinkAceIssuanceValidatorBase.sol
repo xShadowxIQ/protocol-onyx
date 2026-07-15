@@ -70,6 +70,8 @@ abstract contract ChainlinkAceIssuanceValidatorBase is ChainlinkAcePolicyProtect
             _location: CHAINLINK_ACE_ISSUANCE_VALIDATOR_BASE_STORAGE_LOCATION,
             _id: CHAINLINK_ACE_ISSUANCE_VALIDATOR_BASE_STORAGE_LOCATION_ID
         });
+
+        _disableInitializers();
     }
 
     //==================================================================================================================

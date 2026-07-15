@@ -93,6 +93,8 @@ contract SyncDepositHandler is Initializable, PostIssuanceHookHandlerBase {
         StorageHelpersLib.verifyErc7201LocationForId({
             _location: SYNC_DEPOSIT_HANDLER_STORAGE_LOCATION, _id: SYNC_DEPOSIT_HANDLER_STORAGE_LOCATION_ID
         });
+
+        _disableInitializers();
     }
 
     //==================================================================================================================
