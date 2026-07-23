@@ -70,8 +70,6 @@ abstract contract ChainlinkAceIssuanceValidatorBase is ChainlinkAcePolicyProtect
             _location: CHAINLINK_ACE_ISSUANCE_VALIDATOR_BASE_STORAGE_LOCATION,
             _id: CHAINLINK_ACE_ISSUANCE_VALIDATOR_BASE_STORAGE_LOCATION_ID
         });
-
-        _disableInitializers();
     }
 
     //==================================================================================================================
@@ -80,11 +78,11 @@ abstract contract ChainlinkAceIssuanceValidatorBase is ChainlinkAcePolicyProtect
 
     /// @notice Initializer
     /// @param _handler The issuance handler permitted to call the validation entrypoint
-    /// @param _policyEngine The policy engine to attach (zero to disable enforcement; admin-replaceable)
+    /// @param _policyEngine The policy engine to attach (required non-zero; admin-replaceable)
     function init(address _handler, address _policyEngine) external initializer {
         require(_handler != address(0), ChainlinkAceIssuanceValidatorBase__Init__EmptyHandler());
         __getChainlinkAceIssuanceValidatorBaseStorage().handler = _handler;
-        __PolicyProtectedFlexible_init(_policyEngine);
+        __PolicyProtectedBase_init(_policyEngine);
     }
 
     //==================================================================================================================

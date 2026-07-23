@@ -15,5 +15,9 @@ pragma solidity ^0.8.0;
 /// @author Enzyme Foundation <security@enzyme.finance>
 /// @notice Hook called by ERC7540LikeDepositQueue before creating a deposit request
 interface IERC7540LikeDepositQueuePreRequestDepositHook {
+    /// @param _originator The user requesting the deposit
+    /// @param _controller The user who owns the request
+    /// @param _owner The user whose assets are used for the deposit
+    /// @param _assetAmount Gross asset amount to deposit
     function preRequestDeposit(address _originator, address _controller, address _owner, uint256 _assetAmount) external;
 }

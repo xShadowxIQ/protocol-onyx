@@ -27,6 +27,7 @@ contract ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidatorTest
 {
     address originator = makeAddr("originator");
     address controller = makeAddr("controller");
+    address owner = makeAddr("owner");
     uint256 sharesAmount = 123;
     uint256 assetAmount = 456;
 
@@ -37,7 +38,11 @@ contract ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidatorTest
     function __callEntrypoint(address validator_) internal override {
         ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidatorHarness(validator_)
             .postExecuteRedeemRequest({
-            _originator: originator, _controller: controller, _sharesAmount: sharesAmount, _assetAmount: assetAmount
+            _originator: originator,
+            _controller: controller,
+            _owner: owner,
+            _sharesAmount: sharesAmount,
+            _assetAmount: assetAmount
         });
     }
 
@@ -45,7 +50,7 @@ contract ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidatorTest
         return IPolicyEngine.Payload({
             selector: IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook.postExecuteRedeemRequest.selector,
             sender: handler,
-            data: abi.encode(originator, controller, sharesAmount, assetAmount),
+            data: abi.encode(originator, controller, owner, sharesAmount, assetAmount),
             context: context_
         });
     }

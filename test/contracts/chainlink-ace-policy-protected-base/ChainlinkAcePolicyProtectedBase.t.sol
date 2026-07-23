@@ -11,6 +11,11 @@
 
 pragma solidity 0.8.28;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
+import {
+    ChainlinkAceSharesTransferValidator
+} from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
 import {ChainlinkAcePolicyProtectedBase} from "src/infra/chainlink-ace/ChainlinkAcePolicyProtectedBase.sol";
 import {Shares} from "src/shares/Shares.sol";
 
@@ -34,6 +39,19 @@ contract ChainlinkAcePolicyProtectedBaseTest is TestHelpers {
         harness = new ChainlinkAcePolicyProtectedBaseHarness(address(shares));
 
         policyEngine = deployPolicyEngine({_defaultAllow: true, _uniqueId: bytes32("engine")});
+    }
+
+    //==================================================================================================================
+    // init
+    //==================================================================================================================
+
+    function test_RevertGiven_TheContractIsTheImplementation() external {
+        // It should revert with {InvalidInitialization}.
+        // Initializers are disabled in the base constructor, so an implementation cannot be initialized directly.
+        ChainlinkAceSharesTransferValidator implementation = new ChainlinkAceSharesTransferValidator();
+
+        vm.expectRevert({revertData: Initializable.InvalidInitialization.selector, reverter: address(implementation)});
+        implementation.init(address(0));
     }
 
     modifier whenCallingAttachPolicyEngine() {

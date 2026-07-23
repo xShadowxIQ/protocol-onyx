@@ -23,9 +23,9 @@ contract ChainlinkAceSharesTransferValidator is ChainlinkAcePolicyProtectedBase,
     //==================================================================================================================
 
     /// @notice Initializer
-    /// @param _policyEngine The policy engine to attach (zero to disable enforcement; admin-replaceable)
+    /// @param _policyEngine The policy engine to attach (required non-zero; admin-replaceable)
     function init(address _policyEngine) external initializer {
-        __PolicyProtectedFlexible_init(_policyEngine);
+        __PolicyProtectedBase_init(_policyEngine);
     }
 
     //==================================================================================================================

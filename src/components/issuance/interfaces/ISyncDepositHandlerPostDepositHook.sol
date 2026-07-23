@@ -15,5 +15,8 @@ pragma solidity ^0.8.0;
 /// @author Enzyme Foundation <security@enzyme.finance>
 /// @notice Hook called by SyncDepositHandler after a synchronous deposit
 interface ISyncDepositHandlerPostDepositHook {
+    /// @param _originator The user who deposited
+    /// @param _sharesAmount Net shares minted (gross shares minus entrance fee shares)
+    /// @param _assetAmount Gross asset amount deposited
     function postDeposit(address _originator, uint256 _sharesAmount, uint256 _assetAmount) external;
 }

@@ -96,15 +96,11 @@ contract Shares is ERC20Upgradeable, Ownable2StepUpgradeable {
 
     error Shares__AddAdmin__AlreadyAdded();
 
-    error Shares__AddAllowedHolder__AlreadyAdded();
-
     error Shares__AddDepositHandler__AlreadyAdded();
 
     error Shares__AddRedeemHandler__AlreadyAdded();
 
     error Shares__AuthTransfer__Unauthorized();
-
-    error Shares__GetDepositAssetsDest__NotSet();
 
     error Shares__Init__EmptyName();
 
@@ -120,15 +116,11 @@ contract Shares is ERC20Upgradeable, Ownable2StepUpgradeable {
 
     error Shares__RemoveAdmin__AlreadyRemoved();
 
-    error Shares__RemoveAllowedHolder__AlreadyRemoved();
-
     error Shares__RemoveDepositHandler__AlreadyRemoved();
 
     error Shares__RemoveRedeemHandler__AlreadyRemoved();
 
     error Shares__SetValueAsset__Empty();
-
-    error Shares__ValidateTransferRecipient__NotAllowed();
 
     error Shares__WithdrawAssetTo__Unauthorized();
 

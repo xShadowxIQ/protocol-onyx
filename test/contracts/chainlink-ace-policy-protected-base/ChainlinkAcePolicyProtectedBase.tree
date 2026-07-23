@@ -1,4 +1,6 @@
 ChainlinkAcePolicyProtectedBaseTest
+├── When calling init on a raw implementation
+│   └── It should revert with {InvalidInitialization}.
 └── When calling attachPolicyEngine
     ├── When the caller is not an admin or the owner
     │   └── It should revert with {ChainlinkAcePolicyProtectedBase__AuthorizeAttachPolicyEngine__Unauthorized}.

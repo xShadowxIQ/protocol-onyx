@@ -232,9 +232,11 @@ contract ERC7540LikeRedeemQueue is IERC7540LikeRedeemHandler, ERC7540LikeIssuanc
             // Send asset to the user
             shares.withdrawAssetTo({_asset: asset(), _to: request.controller, _amount: userAssets});
 
+            // owner == controller is enforced at request time, so pass controller as owner.
             __runPostExecuteRedeemRequestHook({
                 _originator: msg.sender,
                 _controller: request.controller,
+                _owner: request.controller,
                 _sharesAmount: request.sharesAmount,
                 _assetAmount: userAssets
             });
@@ -282,6 +284,7 @@ contract ERC7540LikeRedeemQueue is IERC7540LikeRedeemHandler, ERC7540LikeIssuanc
     function __runPostExecuteRedeemRequestHook(
         address _originator,
         address _controller,
+        address _owner,
         uint256 _sharesAmount,
         uint256 _assetAmount
     ) internal {
@@ -293,7 +296,11 @@ contract ERC7540LikeRedeemQueue is IERC7540LikeRedeemHandler, ERC7540LikeIssuanc
 
         IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook(hook)
             .postExecuteRedeemRequest({
-            _originator: _originator, _controller: _controller, _sharesAmount: _sharesAmount, _assetAmount: _assetAmount
+            _originator: _originator,
+            _controller: _controller,
+            _owner: _owner,
+            _sharesAmount: _sharesAmount,
+            _assetAmount: _assetAmount
         });
     }
 

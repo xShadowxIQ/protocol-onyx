@@ -28,6 +28,7 @@ contract ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractor i
     /// @notice The account that called the handler to initiate the action
     bytes32 public constant PARAM_ORIGINATOR = keccak256("originator");
     bytes32 public constant PARAM_CONTROLLER = keccak256("controller");
+    bytes32 public constant PARAM_OWNER = keccak256("owner");
     bytes32 public constant PARAM_SHARES_AMOUNT = keccak256("sharesAmount");
     bytes32 public constant PARAM_ASSET_AMOUNT = keccak256("assetAmount");
 
@@ -39,14 +40,15 @@ contract ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractor i
             IPolicyEngine.UnsupportedSelector(_payload.selector)
         );
 
-        (address originator, address controller, uint256 sharesAmount, uint256 assetAmount) =
-            abi.decode(_payload.data, (address, address, uint256, uint256));
+        (address originator, address controller, address owner, uint256 sharesAmount, uint256 assetAmount) =
+            abi.decode(_payload.data, (address, address, address, uint256, uint256));
 
-        IPolicyEngine.Parameter[] memory result = new IPolicyEngine.Parameter[](4);
+        IPolicyEngine.Parameter[] memory result = new IPolicyEngine.Parameter[](5);
         result[0] = IPolicyEngine.Parameter(PARAM_ORIGINATOR, abi.encode(originator));
         result[1] = IPolicyEngine.Parameter(PARAM_CONTROLLER, abi.encode(controller));
-        result[2] = IPolicyEngine.Parameter(PARAM_SHARES_AMOUNT, abi.encode(sharesAmount));
-        result[3] = IPolicyEngine.Parameter(PARAM_ASSET_AMOUNT, abi.encode(assetAmount));
+        result[2] = IPolicyEngine.Parameter(PARAM_OWNER, abi.encode(owner));
+        result[3] = IPolicyEngine.Parameter(PARAM_SHARES_AMOUNT, abi.encode(sharesAmount));
+        result[4] = IPolicyEngine.Parameter(PARAM_ASSET_AMOUNT, abi.encode(assetAmount));
 
         return result;
     }

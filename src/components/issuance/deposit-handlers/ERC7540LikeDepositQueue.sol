@@ -325,9 +325,11 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
             // Send the deposit asset amount to Shares
             IERC20(asset()).safeTransfer(address(shares), request.assetAmount);
 
+            // owner == controller is enforced at request time, so pass controller as owner.
             __runPostExecuteDepositRequestHook({
                 _originator: msg.sender,
                 _controller: request.controller,
+                _owner: request.controller,
                 _sharesAmount: netShares,
                 _assetAmount: request.assetAmount
             });
@@ -371,6 +373,7 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
     function __runPostExecuteDepositRequestHook(
         address _originator,
         address _controller,
+        address _owner,
         uint256 _sharesAmount,
         uint256 _assetAmount
     ) internal {
@@ -382,7 +385,11 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
 
         IERC7540LikeDepositQueuePostExecuteDepositRequestHook(hook)
             .postExecuteDepositRequest({
-            _originator: _originator, _controller: _controller, _sharesAmount: _sharesAmount, _assetAmount: _assetAmount
+            _originator: _originator,
+            _controller: _controller,
+            _owner: _owner,
+            _sharesAmount: _sharesAmount,
+            _assetAmount: _assetAmount
         });
     }
 

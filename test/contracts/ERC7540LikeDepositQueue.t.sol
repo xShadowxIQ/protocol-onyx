@@ -757,11 +757,11 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
         // The post hook fires per executed request with the net minted shares and the request's asset amount.
         bytes memory expectedCall1 = abi.encodeCall(
             IERC7540LikeDepositQueuePostExecuteDepositRequestHook.postExecuteDepositRequest,
-            (admin, d.request1Controller, d.request1ExpectedSharesAmount, d.request1AssetAmount)
+            (admin, d.request1Controller, d.request1Controller, d.request1ExpectedSharesAmount, d.request1AssetAmount)
         );
         bytes memory expectedCall3 = abi.encodeCall(
             IERC7540LikeDepositQueuePostExecuteDepositRequestHook.postExecuteDepositRequest,
-            (admin, d.request3Controller, d.request3ExpectedSharesAmount, d.request3AssetAmount)
+            (admin, d.request3Controller, d.request3Controller, d.request3ExpectedSharesAmount, d.request3AssetAmount)
         );
         vm.mockCall(validator, expectedCall1, bytes(""));
         vm.mockCall(validator, expectedCall3, bytes(""));
@@ -799,6 +799,7 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
         // and request 3 must NOT yet be settled (its assets not yet in Shares).
         RecordingDepositPostExecuteHook.Record memory record1 = recordingHook.getRecord(0);
         assertEq(record1.controller, d.request1Controller, "record 1: wrong controller");
+        assertEq(record1.owner, d.request1Controller, "record 1: wrong owner");
         assertEq(
             record1.sharesAssetBalance,
             preExistingSharesAssetBalance + d.request1AssetAmount,
@@ -813,6 +814,7 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
         // Request 3's hook: cumulative assets of requests 1..3 (of those executed) are now in Shares.
         RecordingDepositPostExecuteHook.Record memory record3 = recordingHook.getRecord(1);
         assertEq(record3.controller, d.request3Controller, "record 3: wrong controller");
+        assertEq(record3.owner, d.request3Controller, "record 3: wrong owner");
         assertEq(
             record3.sharesAssetBalance,
             preExistingSharesAssetBalance + d.request1AssetAmount + d.request3AssetAmount,
@@ -831,6 +833,7 @@ contract ERC7540LikeDepositQueueTest is TestHelpers {
 contract RecordingDepositPostExecuteHook is IERC7540LikeDepositQueuePostExecuteDepositRequestHook {
     struct Record {
         address controller;
+        address owner;
         uint256 sharesAssetBalance;
         uint256 controllerSharesBalance;
     }
@@ -847,6 +850,7 @@ contract RecordingDepositPostExecuteHook is IERC7540LikeDepositQueuePostExecuteD
     function postExecuteDepositRequest(
         address, /* _originator */
         address _controller,
+        address _owner,
         uint256, /* _sharesAmount */
         uint256 /* _assetAmount */
     )
@@ -856,6 +860,7 @@ contract RecordingDepositPostExecuteHook is IERC7540LikeDepositQueuePostExecuteD
         records.push(
             Record({
                 controller: _controller,
+                owner: _owner,
                 sharesAssetBalance: IERC20(ASSET).balanceOf(SHARES),
                 controllerSharesBalance: IERC20(SHARES).balanceOf(_controller)
             })

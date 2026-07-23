@@ -15,5 +15,9 @@ pragma solidity ^0.8.0;
 /// @author Enzyme Foundation <security@enzyme.finance>
 /// @notice Hook called by ERC7540LikeRedeemQueue before creating a redeem request
 interface IERC7540LikeRedeemQueuePreRequestRedeemHook {
+    /// @param _originator The user requesting the redemption
+    /// @param _controller The user who owns the request
+    /// @param _owner The user whose shares are redeemed
+    /// @param _sharesAmount Gross shares amount to redeem
     function preRequestRedeem(address _originator, address _controller, address _owner, uint256 _sharesAmount) external;
 }

@@ -489,11 +489,11 @@ contract ERC7540LikeRedeemQueueTest is TestHelpers {
         // The post hook fires per executed request with the gross shares burned and the net assets sent out.
         bytes memory expectedCall1 = abi.encodeCall(
             IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook.postExecuteRedeemRequest,
-            (admin, d.request1Controller, d.request1SharesAmount, d.request1ExpectedAssetAmount)
+            (admin, d.request1Controller, d.request1Controller, d.request1SharesAmount, d.request1ExpectedAssetAmount)
         );
         bytes memory expectedCall3 = abi.encodeCall(
             IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook.postExecuteRedeemRequest,
-            (admin, d.request3Controller, d.request3SharesAmount, d.request3ExpectedAssetAmount)
+            (admin, d.request3Controller, d.request3Controller, d.request3SharesAmount, d.request3ExpectedAssetAmount)
         );
         vm.mockCall(validator, expectedCall1, bytes(""));
         vm.mockCall(validator, expectedCall3, bytes(""));

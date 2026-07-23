@@ -33,6 +33,7 @@ contract ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractorTe
 
     address originator = makeAddr("originator");
     address controller = makeAddr("controller");
+    address owner = makeAddr("owner");
     address sender = makeAddr("sender");
     uint256 sharesAmount = 100;
     uint256 assetAmount = 200;
@@ -51,13 +52,13 @@ contract ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractorTe
         IPolicyEngine.Payload memory payload = IPolicyEngine.Payload({
             selector: IERC7540LikeDepositQueuePostExecuteDepositRequestHook.postExecuteDepositRequest.selector,
             sender: sender,
-            data: abi.encode(originator, controller, sharesAmount, assetAmount),
+            data: abi.encode(originator, controller, owner, sharesAmount, assetAmount),
             context: bytes("")
         });
 
         IPolicyEngine.Parameter[] memory params = extractor.extract(payload);
 
-        assertEq(params.length, 4, "unexpected param count");
+        assertEq(params.length, 5, "unexpected param count");
 
         assertEq(params[0].name, extractor.PARAM_ORIGINATOR(), "param 0 name");
         assertEq(abi.decode(params[0].value, (address)), originator, "param 0 value");
@@ -65,11 +66,14 @@ contract ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractorTe
         assertEq(params[1].name, extractor.PARAM_CONTROLLER(), "param 1 name");
         assertEq(abi.decode(params[1].value, (address)), controller, "param 1 value");
 
-        assertEq(params[2].name, extractor.PARAM_SHARES_AMOUNT(), "param 2 name");
-        assertEq(abi.decode(params[2].value, (uint256)), sharesAmount, "param 2 value");
+        assertEq(params[2].name, extractor.PARAM_OWNER(), "param 2 name");
+        assertEq(abi.decode(params[2].value, (address)), owner, "param 2 value");
 
-        assertEq(params[3].name, extractor.PARAM_ASSET_AMOUNT(), "param 3 name");
-        assertEq(abi.decode(params[3].value, (uint256)), assetAmount, "param 3 value");
+        assertEq(params[3].name, extractor.PARAM_SHARES_AMOUNT(), "param 3 name");
+        assertEq(abi.decode(params[3].value, (uint256)), sharesAmount, "param 3 value");
+
+        assertEq(params[4].name, extractor.PARAM_ASSET_AMOUNT(), "param 4 name");
+        assertEq(abi.decode(params[4].value, (uint256)), assetAmount, "param 4 value");
     }
 
     function test_extract_fail_unsupportedSelector() public {
@@ -93,7 +97,7 @@ contract ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractorTe
         IPolicyEngine.Payload memory payload = IPolicyEngine.Payload({
             selector: _selector,
             sender: sender,
-            data: abi.encode(originator, controller, sharesAmount, assetAmount),
+            data: abi.encode(originator, controller, owner, sharesAmount, assetAmount),
             context: bytes("")
         });
 

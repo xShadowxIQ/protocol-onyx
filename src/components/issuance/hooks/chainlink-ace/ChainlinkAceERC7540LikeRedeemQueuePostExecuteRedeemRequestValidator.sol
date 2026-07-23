@@ -33,6 +33,7 @@ contract ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator is
     function postExecuteRedeemRequest(
         address _originator,
         address _controller,
+        address _owner,
         uint256 _sharesAmount,
         uint256 _assetAmount
     ) external override onlyHandler runPolicy {}

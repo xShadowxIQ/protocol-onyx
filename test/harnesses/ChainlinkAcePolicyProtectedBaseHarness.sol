@@ -17,8 +17,8 @@ import {ComponentHarnessMixin} from "test/harnesses/utils/ComponentHarnessMixin.
 contract ChainlinkAcePolicyProtectedBaseHarness is ChainlinkAcePolicyProtectedBase, ComponentHarnessMixin {
     constructor(address _shares) ComponentHarnessMixin(_shares) {}
 
-    function exposed__PolicyProtectedFlexible_init(address _policyEngine) external initializer {
-        __PolicyProtectedFlexible_init(_policyEngine);
+    function exposed__PolicyProtectedBase_init(address _policyEngine) external initializer {
+        __PolicyProtectedBase_init(_policyEngine);
     }
 
     function exposed_protectedAction(uint256 _value) external runPolicy {}

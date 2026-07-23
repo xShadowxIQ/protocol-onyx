@@ -11,9 +11,7 @@
 
 pragma solidity 0.8.28;
 
-import {
-    PolicyProtectedFlexibleUpgradeable
-} from "@chainlink/policy-management/core/PolicyProtectedFlexibleUpgradeable.sol";
+import {PolicyProtectedBaseUpgradeable} from "@chainlink/policy-management/core/PolicyProtectedBaseUpgradeable.sol";
 
 import {ComponentHelpersMixin} from "src/components/utils/ComponentHelpersMixin.sol";
 
@@ -24,7 +22,15 @@ import {ComponentHelpersMixin} from "src/components/utils/ComponentHelpersMixin.
 /// The inherited `setContext`/`getContext`/`clearContext` remain callable (vendored `IPolicyProtected` surface)
 /// but have no effect on policy runs here, since hooks are invoked by protocol contracts (handler or Shares),
 /// whose stored context is always empty.
-abstract contract ChainlinkAcePolicyProtectedBase is PolicyProtectedFlexibleUpgradeable, ComponentHelpersMixin {
+abstract contract ChainlinkAcePolicyProtectedBase is PolicyProtectedBaseUpgradeable, ComponentHelpersMixin {
+    //==================================================================================================================
+    // Constructor
+    //==================================================================================================================
+
+    constructor() {
+        _disableInitializers();
+    }
+
     //==================================================================================================================
     // Errors
     //==================================================================================================================

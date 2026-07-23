@@ -61,13 +61,9 @@ contract ChainlinkAceIssuanceValidatorBaseTest is TestHelpers {
     function test_WhenThePolicyEngineIsTheZeroAddress() external whenInitializing {
         ChainlinkAceIssuanceValidatorBaseHarness validator = __deployUninitializedValidator();
 
+        // It should revert.
+        vm.expectRevert(bytes("Policy engine is zero address"), address(validator));
         validator.init({_handler: handler, _policyEngine: address(0)});
-
-        // It should store the handler.
-        assertEq(validator.getHandler(), handler, "handler not stored");
-
-        // It should initialize with no engine attached (enforcement disabled).
-        assertEq(validator.getPolicyEngine(), address(0), "engine should be zero");
     }
 
     function test_WhenBothTheHandlerAndThePolicyEngineAreNon_zeroAddresses() external whenInitializing {
@@ -95,7 +91,7 @@ contract ChainlinkAceIssuanceValidatorBaseTest is TestHelpers {
 
     function test_WhenGettingTheHandler() external {
         ChainlinkAceIssuanceValidatorBaseHarness validator = __deployUninitializedValidator();
-        validator.init({_handler: handler, _policyEngine: address(0)});
+        validator.init({_handler: handler, _policyEngine: deployPolicyEngine({_defaultAllow: true})});
 
         // It should return the stored handler.
         assertEq(validator.getHandler(), handler, "handler mismatch");

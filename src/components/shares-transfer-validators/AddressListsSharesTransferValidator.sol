@@ -39,7 +39,10 @@ contract AddressListsSharesTransferValidator is ISharesTransferValidator, Compon
     string private constant SHARES_TRANSFER_VALIDATOR_STORAGE_LOCATION_ID = "SharesTransferValidator";
 
     /// @custom:storage-location erc7201:enzyme.SharesTransferValidator
-    /// @param recipientAllowlist Address of the IAddressList contract for recipient validation
+    /// @param senderList Address of the IAddressList contract for sender validation
+    /// @param recipientList Address of the IAddressList contract for recipient validation
+    /// @param recipientListType How recipientList is interpreted (allowlist or blocklist; `None` disables it)
+    /// @param senderListType How senderList is interpreted (allowlist or blocklist; `None` disables it)
     struct SharesTransferValidatorStorage {
         address senderList;
         address recipientList;

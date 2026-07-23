@@ -15,5 +15,8 @@ pragma solidity ^0.8.0;
 /// @author Enzyme Foundation <security@enzyme.finance>
 /// @notice Hook called by SharesBurnHandler before burning shares
 interface ISharesBurnHandlerPreBurnHook {
+    /// @param _originator An admin or the owner of the Shares contract executing the burn
+    /// @param _from The holder whose shares are burned
+    /// @param _sharesAmount The amount of shares to burn
     function preBurn(address _originator, address _from, uint256 _sharesAmount) external;
 }
