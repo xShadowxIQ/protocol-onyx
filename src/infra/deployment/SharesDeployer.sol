@@ -23,11 +23,19 @@ import {
     ContinuousFlatRatePerformanceFeeTracker
 } from "src/components/fees/performance-fee-trackers/ContinuousFlatRatePerformanceFeeTracker.sol";
 import {ERC7540LikeDepositQueue} from "src/components/issuance/deposit-handlers/ERC7540LikeDepositQueue.sol";
+import {SharesMintHandler} from "src/components/issuance/deposit-handlers/SharesMintHandler.sol";
 import {SyncDepositHandler} from "src/components/issuance/deposit-handlers/SyncDepositHandler.sol";
+import {
+    ChainlinkAceIssuanceValidatorBase
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceIssuanceValidatorBase.sol";
 import {ERC7540LikeRedeemQueue} from "src/components/issuance/redeem-handlers/ERC7540LikeRedeemQueue.sol";
+import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesBurnHandler.sol";
 import {
     AddressListsSharesTransferValidator
 } from "src/components/shares-transfer-validators/AddressListsSharesTransferValidator.sol";
+import {
+    ChainlinkAceSharesTransferValidator
+} from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {AccountERC20Tracker} from "src/components/value/position-trackers/AccountERC20Tracker.sol";
 import {AddressListBase} from "src/infra/lists/address-list/AddressListBase.sol";
@@ -61,16 +69,47 @@ contract SharesDeployer {
         address sharesOwnedAddressListFactory;
         address ownableAddressListFactory;
         address addressListsSharesTransferValidatorFactory;
+        address sharesMintHandlerFactory;
+        address sharesBurnHandlerFactory;
+        address aceDepositQueuePreRequestValidatorFactory;
+        address aceDepositQueuePostExecuteValidatorFactory;
+        address aceRedeemQueuePreRequestValidatorFactory;
+        address aceRedeemQueuePostExecuteValidatorFactory;
+        address aceSyncDepositPostDepositValidatorFactory;
+        address aceMintPreMintValidatorFactory;
+        address aceBurnPreBurnValidatorFactory;
+        address aceSharesTransferValidatorFactory;
     }
 
     /// @dev How the shares transfer validator should be sourced.
     /// `None`: no transfer validator.
     /// `Existing`: use the address provided in the config.
     /// `DeployAddressLists`: deploy a fresh `AddressListsSharesTransferValidator` and configure its lists.
+    /// `DeployChainlinkAce`: deploy a fresh `ChainlinkAceSharesTransferValidator` attached to `chainlinkAcePolicyEngine`.
     enum TransferValidatorSource {
         None,
         Existing,
-        DeployAddressLists
+        DeployAddressLists,
+        DeployChainlinkAce
+    }
+
+    /// @dev How a handler hook slot should be sourced.
+    /// `None`: no hook.
+    /// `Existing`: use the address provided in the config.
+    /// `DeployChainlinkAce`: deploy the slot's Chainlink ACE validator, attached to `policyEngine`.
+    enum HookSource {
+        None,
+        Existing,
+        DeployChainlinkAce
+    }
+
+    /// @dev Configures one handler hook slot.
+    struct HookConfig {
+        HookSource source;
+        /// @dev Required when `source == Existing`; ignored otherwise.
+        address existingHook;
+        /// @dev Required when `source == DeployChainlinkAce`; ignored otherwise.
+        address policyEngine;
     }
 
     /// @dev How an external address list should be sourced when restriction/source so requires.
@@ -149,6 +188,8 @@ contract SharesDeployer {
         uint256 sharedAddressListIndex;
         /// @dev Seed addresses for `ControllerAllowlistInternal`; must be empty for other restrictions.
         address[] allowedDepositors;
+        HookConfig preRequestDepositHook;
+        HookConfig postExecuteDepositRequestHook;
     }
 
     struct SyncDepositHandlerConfig {
@@ -158,11 +199,24 @@ contract SharesDeployer {
         address depositorAllowlistExisting;
         /// @dev Used when `depositorAllowlistSource == SharedAddressList`.
         uint256 sharedAddressListIndex;
+        HookConfig postDepositHook;
     }
 
     struct RedeemHandlerConfig {
         address asset;
         uint24 minRequestDuration;
+        HookConfig preRequestRedeemHook;
+        HookConfig postExecuteRedeemRequestHook;
+    }
+
+    struct SharesMintHandlerConfig {
+        bool deploy;
+        HookConfig preMintHook;
+    }
+
+    struct SharesBurnHandlerConfig {
+        bool deploy;
+        HookConfig preBurnHook;
     }
 
     struct AddressListsValidatorListConfig {
@@ -178,6 +232,8 @@ contract SharesDeployer {
         address existing;
         AddressListsValidatorListConfig recipientList;
         AddressListsValidatorListConfig senderList;
+        /// @dev Required when `source == DeployChainlinkAce`; ignored otherwise.
+        address chainlinkAcePolicyEngine;
     }
 
     struct PreMintRecipient {
@@ -201,6 +257,8 @@ contract SharesDeployer {
         QueueDepositHandlerConfig[] queueDepositHandlers;
         SyncDepositHandlerConfig[] syncDepositHandlers;
         RedeemHandlerConfig[] redeemHandlers;
+        SharesMintHandlerConfig sharesMintHandler;
+        SharesBurnHandlerConfig sharesBurnHandler;
     }
 
     struct DeployConfig {
@@ -225,9 +283,18 @@ contract SharesDeployer {
         address linearCreditDebtTracker;
         address[] queueDepositHandlers;
         address[] queueDepositHandlerAllowlists;
+        address[] queueDepositHandlerPreRequestHooks;
+        address[] queueDepositHandlerPostExecuteHooks;
         address[] syncDepositHandlers;
         address[] syncDepositHandlerAllowlists;
+        address[] syncDepositHandlerPostDepositHooks;
         address[] redeemHandlers;
+        address[] redeemHandlerPreRequestHooks;
+        address[] redeemHandlerPostExecuteHooks;
+        address sharesMintHandler;
+        address sharesMintHandlerPreMintHook;
+        address sharesBurnHandler;
+        address sharesBurnHandlerPreBurnHook;
         address transferValidator;
         address transferValidatorRecipientList;
         address transferValidatorSenderList;
@@ -252,6 +319,16 @@ contract SharesDeployer {
     address public immutable SHARES_OWNED_ADDRESS_LIST_FACTORY;
     address public immutable OWNABLE_ADDRESS_LIST_FACTORY;
     address public immutable ADDRESS_LISTS_SHARES_TRANSFER_VALIDATOR_FACTORY;
+    address public immutable SHARES_MINT_HANDLER_FACTORY;
+    address public immutable SHARES_BURN_HANDLER_FACTORY;
+    address public immutable CHAINLINK_ACE_DEPOSIT_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_DEPOSIT_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_REDEEM_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_REDEEM_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_SYNC_DEPOSIT_POST_DEPOSIT_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_MINT_PRE_MINT_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_BURN_PRE_BURN_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_SHARES_TRANSFER_VALIDATOR_FACTORY;
 
     //==================================================================================================================
     // Events
@@ -278,6 +355,9 @@ contract SharesDeployer {
     error SharesDeployer__SeedNotAllowedWithoutAllowlist();
     error SharesDeployer__TransferValidatorExistingCannotBeZero();
     error SharesDeployer__SharedAddressListIndexOutOfBounds();
+    error SharesDeployer__HookExistingCannotBeZero();
+    error SharesDeployer__PolicyEngineCannotBeZero();
+    error SharesDeployer__HookNotAllowedWithoutHandler();
 
     //==================================================================================================================
     // Constructor
@@ -297,6 +377,17 @@ contract SharesDeployer {
         SHARES_OWNED_ADDRESS_LIST_FACTORY = _factories.sharesOwnedAddressListFactory;
         OWNABLE_ADDRESS_LIST_FACTORY = _factories.ownableAddressListFactory;
         ADDRESS_LISTS_SHARES_TRANSFER_VALIDATOR_FACTORY = _factories.addressListsSharesTransferValidatorFactory;
+        SHARES_MINT_HANDLER_FACTORY = _factories.sharesMintHandlerFactory;
+        SHARES_BURN_HANDLER_FACTORY = _factories.sharesBurnHandlerFactory;
+        CHAINLINK_ACE_DEPOSIT_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY = _factories.aceDepositQueuePreRequestValidatorFactory;
+        CHAINLINK_ACE_DEPOSIT_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY =
+        _factories.aceDepositQueuePostExecuteValidatorFactory;
+        CHAINLINK_ACE_REDEEM_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY = _factories.aceRedeemQueuePreRequestValidatorFactory;
+        CHAINLINK_ACE_REDEEM_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY = _factories.aceRedeemQueuePostExecuteValidatorFactory;
+        CHAINLINK_ACE_SYNC_DEPOSIT_POST_DEPOSIT_VALIDATOR_FACTORY = _factories.aceSyncDepositPostDepositValidatorFactory;
+        CHAINLINK_ACE_MINT_PRE_MINT_VALIDATOR_FACTORY = _factories.aceMintPreMintValidatorFactory;
+        CHAINLINK_ACE_BURN_PRE_BURN_VALIDATOR_FACTORY = _factories.aceBurnPreBurnValidatorFactory;
+        CHAINLINK_ACE_SHARES_TRANSFER_VALIDATOR_FACTORY = _factories.aceSharesTransferValidatorFactory;
     }
 
     //==================================================================================================================
@@ -328,6 +419,7 @@ contract SharesDeployer {
         __deployQueueDepositHandlers(d, _cfg);
         __deploySyncDepositHandlers(d, _cfg);
         __deployRedeemHandlers(d, _cfg);
+        __deployMintBurnHandlers(d, _cfg);
 
         Shares shares = Shares(d.shares);
 
@@ -389,7 +481,40 @@ contract SharesDeployer {
             __validateSyncDepositHandler(syncDepositHandlers[i], sharedListCount);
         }
 
+        RedeemHandlerConfig[] calldata redeemHandlers = _cfg.components.redeemHandlers;
+        for (uint256 i; i < redeemHandlers.length; i++) {
+            __validateHookConfig(redeemHandlers[i].preRequestRedeemHook);
+            __validateHookConfig(redeemHandlers[i].postExecuteRedeemRequestHook);
+        }
+
+        __validateMintBurnHandlers(_cfg.components.sharesMintHandler, _cfg.components.sharesBurnHandler);
+
         __validateTransferValidator(_cfg.transferValidator, sharedListCount);
+    }
+
+    function __validateMintBurnHandlers(SharesMintHandlerConfig calldata _mint, SharesBurnHandlerConfig calldata _burn)
+        internal
+        pure
+    {
+        if (_mint.deploy) {
+            __validateHookConfig(_mint.preMintHook);
+        } else {
+            require(_mint.preMintHook.source == HookSource.None, SharesDeployer__HookNotAllowedWithoutHandler());
+        }
+
+        if (_burn.deploy) {
+            __validateHookConfig(_burn.preBurnHook);
+        } else {
+            require(_burn.preBurnHook.source == HookSource.None, SharesDeployer__HookNotAllowedWithoutHandler());
+        }
+    }
+
+    function __validateHookConfig(HookConfig calldata _c) internal pure {
+        if (_c.source == HookSource.Existing) {
+            require(_c.existingHook != address(0), SharesDeployer__HookExistingCannotBeZero());
+        } else if (_c.source == HookSource.DeployChainlinkAce) {
+            require(_c.policyEngine != address(0), SharesDeployer__PolicyEngineCannotBeZero());
+        }
     }
 
     function __validateSharedAddressListDefinitions(SharedAddressListDefinition[] calldata _defs) internal pure {
@@ -407,6 +532,8 @@ contract SharesDeployer {
         } else if (_c.source == TransferValidatorSource.DeployAddressLists) {
             __validateValidatorListConfig(_c.recipientList, _sharedListCount);
             __validateValidatorListConfig(_c.senderList, _sharedListCount);
+        } else if (_c.source == TransferValidatorSource.DeployChainlinkAce) {
+            require(_c.chainlinkAcePolicyEngine != address(0), SharesDeployer__PolicyEngineCannotBeZero());
         }
     }
 
@@ -445,6 +572,9 @@ contract SharesDeployer {
             });
             require(_c.allowedDepositors.length == 0, SharesDeployer__SeedNotAllowedForExternalList());
         }
+
+        __validateHookConfig(_c.preRequestDepositHook);
+        __validateHookConfig(_c.postExecuteDepositRequestHook);
     }
 
     function __validateSyncDepositHandler(SyncDepositHandlerConfig calldata _c, uint256 _sharedListCount)
@@ -459,6 +589,8 @@ contract SharesDeployer {
                 _sharedDefinitionsLength: _sharedListCount
             });
         }
+
+        __validateHookConfig(_c.postDepositHook);
     }
 
     function __validateExternalListConfig(
@@ -595,9 +727,8 @@ contract SharesDeployer {
             _d.managementFeeTracker = address(mft);
         }
 
-        ContinuousFlatRatePerformanceFeeTracker pft;
         if (_cfg.components.performanceFee.deploy) {
-            pft = ContinuousFlatRatePerformanceFeeTracker(
+            ContinuousFlatRatePerformanceFeeTracker pft = ContinuousFlatRatePerformanceFeeTracker(
                 ComponentBeaconFactory(PERFORMANCE_FEE_TRACKER_FACTORY).deployProxy(_d.shares, "")
             );
             pft.setRate(_cfg.components.performanceFee.feeBps);
@@ -609,9 +740,6 @@ contract SharesDeployer {
         }
 
         Shares(_d.shares).setFeeHandler(address(fh));
-
-        // Must run after Shares→FeeHandler link is in place; resetHighWaterMark reads share price
-        if (address(pft) != address(0)) pft.resetHighWaterMark();
     }
 
     //==================================================================================================================
@@ -622,6 +750,8 @@ contract SharesDeployer {
         QueueDepositHandlerConfig[] calldata cfgs = _cfg.components.queueDepositHandlers;
         address[] memory deployed = new address[](cfgs.length);
         address[] memory allowlists = new address[](cfgs.length);
+        _d.queueDepositHandlerPreRequestHooks = new address[](cfgs.length);
+        _d.queueDepositHandlerPostExecuteHooks = new address[](cfgs.length);
         Shares shares = Shares(_d.shares);
         address[] memory sharedCatalog = _d.sharedAddressLists;
 
@@ -649,12 +779,40 @@ contract SharesDeployer {
                 allowlists[i] = list;
             }
 
+            __wireQueueDepositHooks(_d, c, q, i);
+
             shares.addDepositHandler(address(q));
             deployed[i] = address(q);
         }
 
         _d.queueDepositHandlers = deployed;
         _d.queueDepositHandlerAllowlists = allowlists;
+    }
+
+    /// @dev Hook arrays on `_d` must be pre-allocated to the queue deposit handler count.
+    function __wireQueueDepositHooks(
+        Deployed memory _d,
+        QueueDepositHandlerConfig calldata _c,
+        ERC7540LikeDepositQueue _q,
+        uint256 _i
+    ) internal {
+        address preRequestHook = __resolveHook({
+            _c: _c.preRequestDepositHook,
+            _aceValidatorFactory: CHAINLINK_ACE_DEPOSIT_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY,
+            _shares: _d.shares,
+            _handler: address(_q)
+        });
+        if (preRequestHook != address(0)) _q.setPreRequestDepositHook(preRequestHook);
+        _d.queueDepositHandlerPreRequestHooks[_i] = preRequestHook;
+
+        address postExecuteHook = __resolveHook({
+            _c: _c.postExecuteDepositRequestHook,
+            _aceValidatorFactory: CHAINLINK_ACE_DEPOSIT_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY,
+            _shares: _d.shares,
+            _handler: address(_q)
+        });
+        if (postExecuteHook != address(0)) _q.setPostExecuteDepositRequestHook(postExecuteHook);
+        _d.queueDepositHandlerPostExecuteHooks[_i] = postExecuteHook;
     }
 
     //==================================================================================================================
@@ -665,6 +823,7 @@ contract SharesDeployer {
         SyncDepositHandlerConfig[] calldata cfgs = _cfg.components.syncDepositHandlers;
         address[] memory deployed = new address[](cfgs.length);
         address[] memory allowlists = new address[](cfgs.length);
+        _d.syncDepositHandlerPostDepositHooks = new address[](cfgs.length);
         Shares shares = Shares(_d.shares);
         address[] memory sharedCatalog = _d.sharedAddressLists;
 
@@ -689,12 +848,31 @@ contract SharesDeployer {
                 h.setMaxSharePriceStaleness(c.maxSharePriceStaleness);
             }
 
+            __wireSyncDepositHooks(_d, c, h, i);
+
             shares.addDepositHandler(address(h));
             deployed[i] = address(h);
         }
 
         _d.syncDepositHandlers = deployed;
         _d.syncDepositHandlerAllowlists = allowlists;
+    }
+
+    /// @dev Hook array on `_d` must be pre-allocated to the sync deposit handler count.
+    function __wireSyncDepositHooks(
+        Deployed memory _d,
+        SyncDepositHandlerConfig calldata _c,
+        SyncDepositHandler _h,
+        uint256 _i
+    ) internal {
+        address postDepositHook = __resolveHook({
+            _c: _c.postDepositHook,
+            _aceValidatorFactory: CHAINLINK_ACE_SYNC_DEPOSIT_POST_DEPOSIT_VALIDATOR_FACTORY,
+            _shares: _d.shares,
+            _handler: address(_h)
+        });
+        if (postDepositHook != address(0)) _h.setPostDepositHook(postDepositHook);
+        _d.syncDepositHandlerPostDepositHooks[_i] = postDepositHook;
     }
 
     //==================================================================================================================
@@ -730,6 +908,14 @@ contract SharesDeployer {
 
         if (vc.source == TransferValidatorSource.Existing) {
             _d.transferValidator = vc.existing;
+            return;
+        }
+
+        if (vc.source == TransferValidatorSource.DeployChainlinkAce) {
+            _d.transferValidator = ComponentBeaconFactory(CHAINLINK_ACE_SHARES_TRANSFER_VALIDATOR_FACTORY)
+                .deployProxy(
+                    _d.shares, abi.encodeCall(ChainlinkAceSharesTransferValidator.init, (vc.chainlinkAcePolicyEngine))
+                );
             return;
         }
 
@@ -779,6 +965,8 @@ contract SharesDeployer {
     function __deployRedeemHandlers(Deployed memory _d, DeployConfig calldata _cfg) internal {
         RedeemHandlerConfig[] calldata cfgs = _cfg.components.redeemHandlers;
         address[] memory deployed = new address[](cfgs.length);
+        _d.redeemHandlerPreRequestHooks = new address[](cfgs.length);
+        _d.redeemHandlerPostExecuteHooks = new address[](cfgs.length);
         Shares shares = Shares(_d.shares);
 
         for (uint256 i; i < cfgs.length; i++) {
@@ -787,10 +975,106 @@ contract SharesDeployer {
                 ERC7540LikeRedeemQueue(ComponentBeaconFactory(REDEEM_QUEUE_FACTORY).deployProxy(_d.shares, ""));
             q.setAsset(c.asset);
             q.setRedeemMinRequestDuration(c.minRequestDuration);
+
+            __wireRedeemHooks(_d, c, q, i);
+
             shares.addRedeemHandler(address(q));
             deployed[i] = address(q);
         }
 
         _d.redeemHandlers = deployed;
+    }
+
+    /// @dev Hook arrays on `_d` must be pre-allocated to the redeem handler count.
+    function __wireRedeemHooks(
+        Deployed memory _d,
+        RedeemHandlerConfig calldata _c,
+        ERC7540LikeRedeemQueue _q,
+        uint256 _i
+    ) internal {
+        address preRequestHook = __resolveHook({
+            _c: _c.preRequestRedeemHook,
+            _aceValidatorFactory: CHAINLINK_ACE_REDEEM_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY,
+            _shares: _d.shares,
+            _handler: address(_q)
+        });
+        if (preRequestHook != address(0)) _q.setPreRequestRedeemHook(preRequestHook);
+        _d.redeemHandlerPreRequestHooks[_i] = preRequestHook;
+
+        address postExecuteHook = __resolveHook({
+            _c: _c.postExecuteRedeemRequestHook,
+            _aceValidatorFactory: CHAINLINK_ACE_REDEEM_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY,
+            _shares: _d.shares,
+            _handler: address(_q)
+        });
+        if (postExecuteHook != address(0)) _q.setPostExecuteRedeemRequestHook(postExecuteHook);
+        _d.redeemHandlerPostExecuteHooks[_i] = postExecuteHook;
+    }
+
+    //==================================================================================================================
+    // Internal: mint/burn handlers
+    //==================================================================================================================
+
+    function __deployMintBurnHandlers(Deployed memory _d, DeployConfig calldata _cfg) internal {
+        Shares shares = Shares(_d.shares);
+
+        if (_cfg.components.sharesMintHandler.deploy) {
+            SharesMintHandler handler =
+                SharesMintHandler(ComponentBeaconFactory(SHARES_MINT_HANDLER_FACTORY).deployProxy(_d.shares, ""));
+
+            address preMintHook = __resolveHook({
+                _c: _cfg.components.sharesMintHandler.preMintHook,
+                _aceValidatorFactory: CHAINLINK_ACE_MINT_PRE_MINT_VALIDATOR_FACTORY,
+                _shares: _d.shares,
+                _handler: address(handler)
+            });
+            if (preMintHook != address(0)) handler.setPreMintHook(preMintHook);
+
+            shares.addDepositHandler(address(handler));
+            _d.sharesMintHandler = address(handler);
+            _d.sharesMintHandlerPreMintHook = preMintHook;
+        }
+
+        if (_cfg.components.sharesBurnHandler.deploy) {
+            SharesBurnHandler handler =
+                SharesBurnHandler(ComponentBeaconFactory(SHARES_BURN_HANDLER_FACTORY).deployProxy(_d.shares, ""));
+
+            address preBurnHook = __resolveHook({
+                _c: _cfg.components.sharesBurnHandler.preBurnHook,
+                _aceValidatorFactory: CHAINLINK_ACE_BURN_PRE_BURN_VALIDATOR_FACTORY,
+                _shares: _d.shares,
+                _handler: address(handler)
+            });
+            if (preBurnHook != address(0)) handler.setPreBurnHook(preBurnHook);
+
+            shares.addRedeemHandler(address(handler));
+            _d.sharesBurnHandler = address(handler);
+            _d.sharesBurnHandlerPreBurnHook = preBurnHook;
+        }
+    }
+
+    //==================================================================================================================
+    // Internal: hook resolution
+    //==================================================================================================================
+
+    /// @dev Resolves the effective hook address for a handler hook slot. For `Existing` returns the
+    /// provided address as-is. For `DeployChainlinkAce` deploys the slot's Chainlink ACE validator
+    /// (implementation fixed per slot by `_aceValidatorFactory`) bound to `_handler` and the configured
+    /// policy engine. Caller must have already validated the inputs via `__validateHookConfig`.
+    function __resolveHook(HookConfig calldata _c, address _aceValidatorFactory, address _shares, address _handler)
+        internal
+        returns (address hook_)
+    {
+        if (_c.source == HookSource.None) {
+            return address(0);
+        }
+
+        if (_c.source == HookSource.Existing) {
+            return _c.existingHook;
+        }
+
+        // DeployChainlinkAce
+        return ComponentBeaconFactory(_aceValidatorFactory)
+            .deployProxy(_shares, abi.encodeCall(ChainlinkAceIssuanceValidatorBase.init, (_handler, _c.policyEngine)));
     }
 }

@@ -23,12 +23,41 @@ import {
     ContinuousFlatRatePerformanceFeeTracker
 } from "src/components/fees/performance-fee-trackers/ContinuousFlatRatePerformanceFeeTracker.sol";
 import {ERC7540LikeDepositQueue} from "src/components/issuance/deposit-handlers/ERC7540LikeDepositQueue.sol";
+import {SharesMintHandler} from "src/components/issuance/deposit-handlers/SharesMintHandler.sol";
 import {SyncDepositHandler} from "src/components/issuance/deposit-handlers/SyncDepositHandler.sol";
+import {
+    ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator.sol";
+import {
+    ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator.sol";
+import {
+    ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator.sol";
+import {
+    ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator.sol";
+import {
+    ChainlinkAceSyncDepositHandlerPostDepositValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSyncDepositHandlerPostDepositValidator.sol";
+import {
+    ChainlinkAceSharesMintHandlerPreMintValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesMintHandlerPreMintValidator.sol";
+import {
+    ChainlinkAceSharesBurnHandlerPreBurnValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesBurnHandlerPreBurnValidator.sol";
+import {
+    ChainlinkAceIssuanceValidatorBase
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceIssuanceValidatorBase.sol";
 import {ERC7540LikeRedeemQueue} from "src/components/issuance/redeem-handlers/ERC7540LikeRedeemQueue.sol";
+import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesBurnHandler.sol";
 import {SharesOwnedAddressList} from "src/components/lists/SharesOwnedAddressList.sol";
 import {
     AddressListsSharesTransferValidator
 } from "src/components/shares-transfer-validators/AddressListsSharesTransferValidator.sol";
+import {
+    ChainlinkAceSharesTransferValidator
+} from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
 import {ValuationHandler} from "src/components/value/ValuationHandler.sol";
 import {AccountERC20Tracker} from "src/components/value/position-trackers/AccountERC20Tracker.sol";
 import {LinearCreditDebtTracker} from "src/components/value/position-trackers/LinearCreditDebtTracker.sol";
@@ -39,8 +68,9 @@ import {OwnableAddressList} from "src/infra/lists/address-list/OwnableAddressLis
 import {Shares} from "src/shares/Shares.sol";
 
 import {MockERC20} from "test/mocks/MockERC20.sol";
+import {TestHelpers} from "test/utils/TestHelpers.sol";
 
-contract SharesDeployerTest is Test {
+contract SharesDeployerTest is TestHelpers {
     SharesDeployer deployer;
 
     BeaconFactory sharesFactory;
@@ -56,6 +86,25 @@ contract SharesDeployerTest is Test {
     ComponentBeaconFactory sharesOwnedAddressListFactory;
     BeaconFactory ownableAddressListFactory;
     ComponentBeaconFactory addressListsSharesTransferValidatorFactory;
+    ComponentBeaconFactory sharesMintHandlerFactory;
+    ComponentBeaconFactory sharesBurnHandlerFactory;
+    ComponentBeaconFactory aceDepositQueuePreRequestValidatorFactory;
+    ComponentBeaconFactory aceDepositQueuePostExecuteValidatorFactory;
+    ComponentBeaconFactory aceRedeemQueuePreRequestValidatorFactory;
+    ComponentBeaconFactory aceRedeemQueuePostExecuteValidatorFactory;
+    ComponentBeaconFactory aceSyncDepositPostDepositValidatorFactory;
+    ComponentBeaconFactory aceMintPreMintValidatorFactory;
+    ComponentBeaconFactory aceBurnPreBurnValidatorFactory;
+    ComponentBeaconFactory aceSharesTransferValidatorFactory;
+
+    address policyEngineQueuePreRequest;
+    address policyEngineQueuePostExecute;
+    address policyEngineSyncPostDeposit;
+    address policyEngineRedeemPreRequest;
+    address policyEngineRedeemPostExecute;
+    address policyEngineMintPreMint;
+    address policyEngineBurnPreBurn;
+    address policyEngineSharesTransfer;
 
     address deployerWallet = makeAddr("deployerWallet");
     address vaultOwner = makeAddr("vaultOwner");
@@ -88,6 +137,16 @@ contract SharesDeployerTest is Test {
         sharesOwnedAddressListFactory = new ComponentBeaconFactory(address(global));
         ownableAddressListFactory = new BeaconFactory(address(global));
         addressListsSharesTransferValidatorFactory = new ComponentBeaconFactory(address(global));
+        sharesMintHandlerFactory = new ComponentBeaconFactory(address(global));
+        sharesBurnHandlerFactory = new ComponentBeaconFactory(address(global));
+        aceDepositQueuePreRequestValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceDepositQueuePostExecuteValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceRedeemQueuePreRequestValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceRedeemQueuePostExecuteValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceSyncDepositPostDepositValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceMintPreMintValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceBurnPreBurnValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceSharesTransferValidatorFactory = new ComponentBeaconFactory(address(global));
 
         sharesFactory.setImplementation(address(new Shares()));
         feeHandlerFactory.setImplementation(address(new FeeHandler()));
@@ -102,6 +161,26 @@ contract SharesDeployerTest is Test {
         sharesOwnedAddressListFactory.setImplementation(address(new SharesOwnedAddressList()));
         ownableAddressListFactory.setImplementation(address(new OwnableAddressList()));
         addressListsSharesTransferValidatorFactory.setImplementation(address(new AddressListsSharesTransferValidator()));
+        sharesMintHandlerFactory.setImplementation(address(new SharesMintHandler()));
+        sharesBurnHandlerFactory.setImplementation(address(new SharesBurnHandler()));
+        aceDepositQueuePreRequestValidatorFactory.setImplementation(
+            address(new ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator())
+        );
+        aceDepositQueuePostExecuteValidatorFactory.setImplementation(
+            address(new ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator())
+        );
+        aceRedeemQueuePreRequestValidatorFactory.setImplementation(
+            address(new ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator())
+        );
+        aceRedeemQueuePostExecuteValidatorFactory.setImplementation(
+            address(new ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator())
+        );
+        aceSyncDepositPostDepositValidatorFactory.setImplementation(
+            address(new ChainlinkAceSyncDepositHandlerPostDepositValidator())
+        );
+        aceMintPreMintValidatorFactory.setImplementation(address(new ChainlinkAceSharesMintHandlerPreMintValidator()));
+        aceBurnPreBurnValidatorFactory.setImplementation(address(new ChainlinkAceSharesBurnHandlerPreBurnValidator()));
+        aceSharesTransferValidatorFactory.setImplementation(address(new ChainlinkAceSharesTransferValidator()));
 
         SharesDeployer.Factories memory factories = SharesDeployer.Factories({
             sharesFactory: address(sharesFactory),
@@ -116,9 +195,29 @@ contract SharesDeployerTest is Test {
             redeemQueueFactory: address(redeemQueueFactory),
             sharesOwnedAddressListFactory: address(sharesOwnedAddressListFactory),
             ownableAddressListFactory: address(ownableAddressListFactory),
-            addressListsSharesTransferValidatorFactory: address(addressListsSharesTransferValidatorFactory)
+            addressListsSharesTransferValidatorFactory: address(addressListsSharesTransferValidatorFactory),
+            sharesMintHandlerFactory: address(sharesMintHandlerFactory),
+            sharesBurnHandlerFactory: address(sharesBurnHandlerFactory),
+            aceDepositQueuePreRequestValidatorFactory: address(aceDepositQueuePreRequestValidatorFactory),
+            aceDepositQueuePostExecuteValidatorFactory: address(aceDepositQueuePostExecuteValidatorFactory),
+            aceRedeemQueuePreRequestValidatorFactory: address(aceRedeemQueuePreRequestValidatorFactory),
+            aceRedeemQueuePostExecuteValidatorFactory: address(aceRedeemQueuePostExecuteValidatorFactory),
+            aceSyncDepositPostDepositValidatorFactory: address(aceSyncDepositPostDepositValidatorFactory),
+            aceMintPreMintValidatorFactory: address(aceMintPreMintValidatorFactory),
+            aceBurnPreBurnValidatorFactory: address(aceBurnPreBurnValidatorFactory),
+            aceSharesTransferValidatorFactory: address(aceSharesTransferValidatorFactory)
         });
         deployer = new SharesDeployer(factories);
+
+        // Per-validator policy engines, to assert each deployed ACE validator gets its own engine
+        policyEngineQueuePreRequest = deployPolicyEngine(true, bytes32(uint256(1)));
+        policyEngineQueuePostExecute = deployPolicyEngine(true, bytes32(uint256(2)));
+        policyEngineSyncPostDeposit = deployPolicyEngine(true, bytes32(uint256(3)));
+        policyEngineRedeemPreRequest = deployPolicyEngine(true, bytes32(uint256(4)));
+        policyEngineRedeemPostExecute = deployPolicyEngine(true, bytes32(uint256(5)));
+        policyEngineMintPreMint = deployPolicyEngine(true, bytes32(uint256(6)));
+        policyEngineBurnPreBurn = deployPolicyEngine(true, bytes32(uint256(7)));
+        policyEngineSharesTransfer = deployPolicyEngine(true, bytes32(uint256(8)));
 
         usdc = new MockERC20(6);
         weth = new MockERC20(18);
@@ -141,10 +240,11 @@ contract SharesDeployerTest is Test {
         cfg.admins[1] = adminB;
 
         cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
-            source: SharesDeployer.TransferValidatorSource.Existing,
-            existing: validator,
+            source: SharesDeployer.TransferValidatorSource.DeployChainlinkAce,
+            existing: address(0),
             recipientList: __validatorListNone(),
-            senderList: __validatorListNone()
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: policyEngineSharesTransfer
         });
 
         ValuationHandler.AssetRateInput[] memory rates = new ValuationHandler.AssetRateInput[](2);
@@ -186,7 +286,9 @@ contract SharesDeployerTest is Test {
             externalListSource: SharesDeployer.ExternalListSource.None,
             externalListExisting: address(0),
             sharedAddressListIndex: 0,
-            allowedDepositors: new address[](0)
+            allowedDepositors: new address[](0),
+            preRequestDepositHook: __hookAce(policyEngineQueuePreRequest),
+            postExecuteDepositRequestHook: __hookAce(policyEngineQueuePostExecute)
         });
 
         cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
@@ -195,12 +297,22 @@ contract SharesDeployerTest is Test {
             maxSharePriceStaleness: 600,
             depositorAllowlistSource: SharesDeployer.ExternalListSource.Existing,
             depositorAllowlistExisting: depositorAllowlist,
-            sharedAddressListIndex: 0
+            sharedAddressListIndex: 0,
+            postDepositHook: __hookAce(policyEngineSyncPostDeposit)
         });
 
         cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](1);
-        cfg.components.redeemHandlers[0] =
-            SharesDeployer.RedeemHandlerConfig({asset: address(usdc), minRequestDuration: 7200});
+        cfg.components.redeemHandlers[0] = SharesDeployer.RedeemHandlerConfig({
+            asset: address(usdc),
+            minRequestDuration: 7200,
+            preRequestRedeemHook: __hookAce(policyEngineRedeemPreRequest),
+            postExecuteRedeemRequestHook: __hookAce(policyEngineRedeemPostExecute)
+        });
+
+        cfg.components.sharesMintHandler =
+            SharesDeployer.SharesMintHandlerConfig({deploy: true, preMintHook: __hookAce(policyEngineMintPreMint)});
+        cfg.components.sharesBurnHandler =
+            SharesDeployer.SharesBurnHandlerConfig({deploy: true, preBurnHook: __hookAce(policyEngineBurnPreBurn)});
     }
 
     //==================================================================================================================
@@ -221,7 +333,17 @@ contract SharesDeployerTest is Test {
 
         assertTrue(shares.getFeeHandler() != address(0), "feeHandler unset");
         assertTrue(shares.getValuationHandler() != address(0), "valuationHandler unset");
-        assertEq(shares.getSharesTransferValidator(), validator, "transferValidator");
+
+        // Transfer validator: freshly-deployed ChainlinkAce validator wired on Shares
+        address[] memory transferValidators =
+            __collectProxiesFromFactory(logs, address(aceSharesTransferValidatorFactory));
+        assertEq(transferValidators.length, 1, "transfer validator count");
+        assertEq(shares.getSharesTransferValidator(), transferValidators[0], "transferValidator");
+        assertEq(
+            ChainlinkAceSharesTransferValidator(transferValidators[0]).getPolicyEngine(),
+            policyEngineSharesTransfer,
+            "transfer validator engine"
+        );
 
         ValuationHandler vh = ValuationHandler(shares.getValuationHandler());
         address[] memory trackers = vh.getPositionTrackers();
@@ -240,7 +362,8 @@ contract SharesDeployerTest is Test {
 
         ContinuousFlatRatePerformanceFeeTracker pft =
             ContinuousFlatRatePerformanceFeeTracker(fh.getPerformanceFeeTracker());
-        assertGt(pft.getHighWaterMark(), 0, "pft hwm");
+        // HWM initialization is an explicit post-deploy admin step; the deployer must not set it
+        assertEq(pft.getHighWaterMark(), 0, "pft hwm must be uninitialized");
         assertEq(pft.getHurdleRate(), int16(500), "pft hurdle");
 
         // Sync deposit handler wired correctly
@@ -252,12 +375,93 @@ contract SharesDeployerTest is Test {
         assertEq(sync.getMaxSharePriceStaleness(), 600, "sync staleness");
         assertTrue(shares.isDepositHandler(syncs[0]), "sync handler not registered on Shares");
 
+        // ACE issuance validators wired per hook slot, each with its own handler + policy engine
+        __assertFullConfig_queueAndSyncAceHooks(logs);
+        __assertFullConfig_redeemAceHooks(logs);
+        __assertFullConfig_mintBurnHandlers(shares, logs);
+
         assertTrue(shares.isAdmin(adminA), "adminA");
         assertTrue(shares.isAdmin(adminB), "adminB");
         assertEq(shares.pendingOwner(), deployerWallet, "pending owner");
         assertEq(shares.owner(), address(deployer), "deployer contract is owner until nominee accepts");
 
         assertFalse(shares.isDepositHandler(address(deployer)), "deployer still deposit handler");
+    }
+
+    function __assertFullConfig_queueAndSyncAceHooks(Vm.Log[] memory _logs) internal view {
+        address[] memory queues = __collectProxiesFromFactory(_logs, address(depositQueueFactory));
+        __assertAceIssuanceValidator({
+            _hook: ERC7540LikeDepositQueue(queues[0]).getPreRequestDepositHook(),
+            _logs: _logs,
+            _aceFactory: address(aceDepositQueuePreRequestValidatorFactory),
+            _handler: queues[0],
+            _policyEngine: policyEngineQueuePreRequest,
+            _label: "queue preRequest"
+        });
+        __assertAceIssuanceValidator({
+            _hook: ERC7540LikeDepositQueue(queues[0]).getPostExecuteDepositRequestHook(),
+            _logs: _logs,
+            _aceFactory: address(aceDepositQueuePostExecuteValidatorFactory),
+            _handler: queues[0],
+            _policyEngine: policyEngineQueuePostExecute,
+            _label: "queue postExecute"
+        });
+
+        address[] memory syncs = __collectProxiesFromFactory(_logs, address(syncDepositHandlerFactory));
+        __assertAceIssuanceValidator({
+            _hook: SyncDepositHandler(syncs[0]).getPostDepositHook(),
+            _logs: _logs,
+            _aceFactory: address(aceSyncDepositPostDepositValidatorFactory),
+            _handler: syncs[0],
+            _policyEngine: policyEngineSyncPostDeposit,
+            _label: "sync postDeposit"
+        });
+    }
+
+    function __assertFullConfig_redeemAceHooks(Vm.Log[] memory _logs) internal view {
+        address[] memory redeems = __collectProxiesFromFactory(_logs, address(redeemQueueFactory));
+        __assertAceIssuanceValidator({
+            _hook: ERC7540LikeRedeemQueue(redeems[0]).getPreRequestRedeemHook(),
+            _logs: _logs,
+            _aceFactory: address(aceRedeemQueuePreRequestValidatorFactory),
+            _handler: redeems[0],
+            _policyEngine: policyEngineRedeemPreRequest,
+            _label: "redeem preRequest"
+        });
+        __assertAceIssuanceValidator({
+            _hook: ERC7540LikeRedeemQueue(redeems[0]).getPostExecuteRedeemRequestHook(),
+            _logs: _logs,
+            _aceFactory: address(aceRedeemQueuePostExecuteValidatorFactory),
+            _handler: redeems[0],
+            _policyEngine: policyEngineRedeemPostExecute,
+            _label: "redeem postExecute"
+        });
+    }
+
+    function __assertFullConfig_mintBurnHandlers(Shares _shares, Vm.Log[] memory _logs) internal view {
+        address[] memory mintHandlers = __collectProxiesFromFactory(_logs, address(sharesMintHandlerFactory));
+        assertEq(mintHandlers.length, 1, "mint handler count");
+        assertTrue(_shares.isDepositHandler(mintHandlers[0]), "mint handler not registered on Shares");
+        __assertAceIssuanceValidator({
+            _hook: SharesMintHandler(mintHandlers[0]).getPreMintHook(),
+            _logs: _logs,
+            _aceFactory: address(aceMintPreMintValidatorFactory),
+            _handler: mintHandlers[0],
+            _policyEngine: policyEngineMintPreMint,
+            _label: "mint preMint"
+        });
+
+        address[] memory burnHandlers = __collectProxiesFromFactory(_logs, address(sharesBurnHandlerFactory));
+        assertEq(burnHandlers.length, 1, "burn handler count");
+        assertTrue(_shares.isRedeemHandler(burnHandlers[0]), "burn handler not registered on Shares");
+        __assertAceIssuanceValidator({
+            _hook: SharesBurnHandler(burnHandlers[0]).getPreBurnHook(),
+            _logs: _logs,
+            _aceFactory: address(aceBurnPreBurnValidatorFactory),
+            _handler: burnHandlers[0],
+            _policyEngine: policyEngineBurnPreBurn,
+            _label: "burn preBurn"
+        });
     }
 
     //==================================================================================================================
@@ -285,7 +489,11 @@ contract SharesDeployerTest is Test {
         __assertVaultDeployed_singleFields(d, logs);
         __assertVaultDeployed_arrayFields(d, logs);
 
-        assertEq(d.transferValidator, validator, "event.transferValidator (existing)");
+        assertEq(
+            d.transferValidator,
+            __collectProxiesFromFactory(logs, address(aceSharesTransferValidatorFactory))[0],
+            "event.transferValidator (deployed ACE)"
+        );
         assertEq(d.transferValidatorRecipientList, address(0), "event.transferValidatorRecipientList");
         assertEq(d.transferValidatorSenderList, address(0), "event.transferValidatorSenderList");
 
@@ -336,6 +544,26 @@ contract SharesDeployerTest is Test {
             __collectProxiesFromFactory(_logs, address(linearCreditDebtTrackerFactory))[0],
             "linearCreditDebtTracker"
         );
+        assertEq(
+            _d.sharesMintHandler,
+            __collectProxiesFromFactory(_logs, address(sharesMintHandlerFactory))[0],
+            "sharesMintHandler"
+        );
+        assertEq(
+            _d.sharesMintHandlerPreMintHook,
+            __collectProxiesFromFactory(_logs, address(aceMintPreMintValidatorFactory))[0],
+            "sharesMintHandlerPreMintHook"
+        );
+        assertEq(
+            _d.sharesBurnHandler,
+            __collectProxiesFromFactory(_logs, address(sharesBurnHandlerFactory))[0],
+            "sharesBurnHandler"
+        );
+        assertEq(
+            _d.sharesBurnHandlerPreBurnHook,
+            __collectProxiesFromFactory(_logs, address(aceBurnPreBurnValidatorFactory))[0],
+            "sharesBurnHandlerPreBurnHook"
+        );
     }
 
     function __assertVaultDeployed_arrayFields(SharesDeployer.Deployed memory _d, Vm.Log[] memory _logs) internal view {
@@ -345,16 +573,46 @@ contract SharesDeployerTest is Test {
         // fullConfig uses Restriction.None for the queue, so there's no external allowlist
         assertEq(_d.queueDepositHandlerAllowlists.length, 1, "queue allowlists len");
         assertEq(_d.queueDepositHandlerAllowlists[0], address(0), "queue allowlist is unset");
+        assertEq(_d.queueDepositHandlerPreRequestHooks.length, 1, "queue preRequest hooks len");
+        assertEq(
+            _d.queueDepositHandlerPreRequestHooks[0],
+            __collectProxiesFromFactory(_logs, address(aceDepositQueuePreRequestValidatorFactory))[0],
+            "queue preRequest hook"
+        );
+        assertEq(_d.queueDepositHandlerPostExecuteHooks.length, 1, "queue postExecute hooks len");
+        assertEq(
+            _d.queueDepositHandlerPostExecuteHooks[0],
+            __collectProxiesFromFactory(_logs, address(aceDepositQueuePostExecuteValidatorFactory))[0],
+            "queue postExecute hook"
+        );
 
         address[] memory syncs = __collectProxiesFromFactory(_logs, address(syncDepositHandlerFactory));
         assertEq(_d.syncDepositHandlers.length, syncs.length, "sync count");
         assertEq(_d.syncDepositHandlers[0], syncs[0], "sync addr");
         assertEq(_d.syncDepositHandlerAllowlists.length, 1, "sync allowlists len");
         assertEq(_d.syncDepositHandlerAllowlists[0], depositorAllowlist, "sync allowlist (existing)");
+        assertEq(_d.syncDepositHandlerPostDepositHooks.length, 1, "sync postDeposit hooks len");
+        assertEq(
+            _d.syncDepositHandlerPostDepositHooks[0],
+            __collectProxiesFromFactory(_logs, address(aceSyncDepositPostDepositValidatorFactory))[0],
+            "sync postDeposit hook"
+        );
 
         address[] memory redeems = __collectProxiesFromFactory(_logs, address(redeemQueueFactory));
         assertEq(_d.redeemHandlers.length, redeems.length, "redeem count");
         assertEq(_d.redeemHandlers[0], redeems[0], "redeem addr");
+        assertEq(_d.redeemHandlerPreRequestHooks.length, 1, "redeem preRequest hooks len");
+        assertEq(
+            _d.redeemHandlerPreRequestHooks[0],
+            __collectProxiesFromFactory(_logs, address(aceRedeemQueuePreRequestValidatorFactory))[0],
+            "redeem preRequest hook"
+        );
+        assertEq(_d.redeemHandlerPostExecuteHooks.length, 1, "redeem postExecute hooks len");
+        assertEq(
+            _d.redeemHandlerPostExecuteHooks[0],
+            __collectProxiesFromFactory(_logs, address(aceRedeemQueuePostExecuteValidatorFactory))[0],
+            "redeem postExecute hook"
+        );
 
         address[] memory sharedLists = __collectProxiesFromFactory(_logs, address(sharesOwnedAddressListFactory));
         assertEq(_d.sharedAddressLists.length, sharedLists.length, "shared list count");
@@ -817,10 +1075,18 @@ contract SharesDeployerTest is Test {
             __queueCfg(address(weth), 100, ERC7540LikeDepositQueue.DepositRestriction.None);
 
         cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](2);
-        cfg.components.redeemHandlers[0] =
-            SharesDeployer.RedeemHandlerConfig({asset: address(usdc), minRequestDuration: 60});
-        cfg.components.redeemHandlers[1] =
-            SharesDeployer.RedeemHandlerConfig({asset: address(weth), minRequestDuration: 120});
+        cfg.components.redeemHandlers[0] = SharesDeployer.RedeemHandlerConfig({
+            asset: address(usdc),
+            minRequestDuration: 60,
+            preRequestRedeemHook: __hookNone(),
+            postExecuteRedeemRequestHook: __hookNone()
+        });
+        cfg.components.redeemHandlers[1] = SharesDeployer.RedeemHandlerConfig({
+            asset: address(weth),
+            minRequestDuration: 120,
+            preRequestRedeemHook: __hookNone(),
+            postExecuteRedeemRequestHook: __hookNone()
+        });
 
         vm.recordLogs();
         Shares shares = Shares(deployer.deploy(cfg));
@@ -921,7 +1187,8 @@ contract SharesDeployerTest is Test {
             source: SharesDeployer.TransferValidatorSource.Existing,
             existing: validator,
             recipientList: __validatorListNone(),
-            senderList: __validatorListNone()
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         Shares shares = Shares(deployer.deploy(cfg));
@@ -955,7 +1222,8 @@ contract SharesDeployerTest is Test {
                 externalListExisting: address(0),
                 sharedAddressListIndex: 0
             }),
-            senderList: __validatorListNone()
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         vm.recordLogs();
@@ -1009,7 +1277,8 @@ contract SharesDeployerTest is Test {
                 externalListSource: SharesDeployer.ExternalListSource.SharedAddressList,
                 externalListExisting: address(0),
                 sharedAddressListIndex: 0
-            })
+            }),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         vm.recordLogs();
@@ -1070,7 +1339,8 @@ contract SharesDeployerTest is Test {
                 externalListSource: SharesDeployer.ExternalListSource.SharedAddressList,
                 externalListExisting: address(0),
                 sharedAddressListIndex: 1
-            })
+            }),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         vm.recordLogs();
@@ -1111,7 +1381,8 @@ contract SharesDeployerTest is Test {
             source: SharesDeployer.TransferValidatorSource.Existing,
             existing: address(0),
             recipientList: __validatorListNone(),
-            senderList: __validatorListNone()
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         vm.expectRevert(SharesDeployer.SharesDeployer__TransferValidatorExistingCannotBeZero.selector);
@@ -1129,7 +1400,8 @@ contract SharesDeployerTest is Test {
                 externalListExisting: address(0),
                 sharedAddressListIndex: 0
             }),
-            senderList: __validatorListNone()
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         vm.expectRevert(SharesDeployer.SharesDeployer__ExternalListSourceRequired.selector);
@@ -1147,7 +1419,8 @@ contract SharesDeployerTest is Test {
                 externalListExisting: makeAddr("existing"),
                 sharedAddressListIndex: 0
             }),
-            senderList: __validatorListNone()
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         vm.expectRevert(SharesDeployer.SharesDeployer__ExternalListSourceNotAllowed.selector);
@@ -1173,7 +1446,8 @@ contract SharesDeployerTest is Test {
             maxSharePriceStaleness: 0,
             depositorAllowlistSource: SharesDeployer.ExternalListSource.SharedAddressList,
             depositorAllowlistExisting: address(0),
-            sharedAddressListIndex: 0
+            sharedAddressListIndex: 0,
+            postDepositHook: __hookNone()
         });
 
         cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
@@ -1185,7 +1459,8 @@ contract SharesDeployerTest is Test {
                 externalListExisting: address(0),
                 sharedAddressListIndex: 0
             }),
-            senderList: __validatorListNone()
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: address(0)
         });
 
         vm.recordLogs();
@@ -1224,7 +1499,8 @@ contract SharesDeployerTest is Test {
             maxSharePriceStaleness: 0,
             depositorAllowlistSource: SharesDeployer.ExternalListSource.SharedAddressList,
             depositorAllowlistExisting: address(0),
-            sharedAddressListIndex: 1
+            sharedAddressListIndex: 1,
+            postDepositHook: __hookNone()
         });
 
         vm.expectRevert(SharesDeployer.SharesDeployer__SharedAddressListIndexOutOfBounds.selector);
@@ -1347,8 +1623,267 @@ contract SharesDeployerTest is Test {
     }
 
     //==================================================================================================================
+    // Mint/burn handlers
+    //==================================================================================================================
+
+    function test_deploy_mintBurnHandlers_notDeployedByDefault() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+
+        vm.recordLogs();
+        deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(__collectProxiesFromFactory(logs, address(sharesMintHandlerFactory)).length, 0, "mint handler");
+        assertEq(__collectProxiesFromFactory(logs, address(sharesBurnHandlerFactory)).length, 0, "burn handler");
+    }
+
+    function test_deploy_mintBurnHandlers_withoutHooks() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.sharesMintHandler =
+            SharesDeployer.SharesMintHandlerConfig({deploy: true, preMintHook: __hookNone()});
+        cfg.components.sharesBurnHandler =
+            SharesDeployer.SharesBurnHandlerConfig({deploy: true, preBurnHook: __hookNone()});
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory mintHandlers = __collectProxiesFromFactory(logs, address(sharesMintHandlerFactory));
+        address[] memory burnHandlers = __collectProxiesFromFactory(logs, address(sharesBurnHandlerFactory));
+        assertEq(mintHandlers.length, 1, "mint handler count");
+        assertEq(burnHandlers.length, 1, "burn handler count");
+        assertTrue(shares.isDepositHandler(mintHandlers[0]), "mint handler registered");
+        assertTrue(shares.isRedeemHandler(burnHandlers[0]), "burn handler registered");
+        assertEq(SharesMintHandler(mintHandlers[0]).getPreMintHook(), address(0), "preMintHook unset");
+        assertEq(SharesBurnHandler(burnHandlers[0]).getPreBurnHook(), address(0), "preBurnHook unset");
+        assertEq(
+            __collectProxiesFromFactory(logs, address(aceMintPreMintValidatorFactory)).length, 0, "no mint validator"
+        );
+        assertEq(
+            __collectProxiesFromFactory(logs, address(aceBurnPreBurnValidatorFactory)).length, 0, "no burn validator"
+        );
+    }
+
+    //==================================================================================================================
+    // Hook slots: Existing source
+    //==================================================================================================================
+
+    function test_deploy_hookSource_existing_allSlots() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+
+        address queuePreHook = makeAddr("queuePreHook");
+        address queuePostHook = makeAddr("queuePostHook");
+        address syncPostHook = makeAddr("syncPostHook");
+        address redeemPreHook = makeAddr("redeemPreHook");
+        address redeemPostHook = makeAddr("redeemPostHook");
+        address mintPreHook = makeAddr("mintPreHook");
+        address burnPreHook = makeAddr("burnPreHook");
+
+        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
+        SharesDeployer.QueueDepositHandlerConfig memory qc =
+            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.None);
+        qc.preRequestDepositHook = __hookExisting(queuePreHook);
+        qc.postExecuteDepositRequestHook = __hookExisting(queuePostHook);
+        cfg.components.queueDepositHandlers[0] = qc;
+
+        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
+        SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(usdc), 0);
+        sc.postDepositHook = __hookExisting(syncPostHook);
+        cfg.components.syncDepositHandlers[0] = sc;
+
+        cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](1);
+        cfg.components.redeemHandlers[0] = SharesDeployer.RedeemHandlerConfig({
+            asset: address(usdc),
+            minRequestDuration: 0,
+            preRequestRedeemHook: __hookExisting(redeemPreHook),
+            postExecuteRedeemRequestHook: __hookExisting(redeemPostHook)
+        });
+
+        cfg.components.sharesMintHandler =
+            SharesDeployer.SharesMintHandlerConfig({deploy: true, preMintHook: __hookExisting(mintPreHook)});
+        cfg.components.sharesBurnHandler =
+            SharesDeployer.SharesBurnHandlerConfig({deploy: true, preBurnHook: __hookExisting(burnPreHook)});
+
+        vm.recordLogs();
+        deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory queues = __collectProxiesFromFactory(logs, address(depositQueueFactory));
+        assertEq(ERC7540LikeDepositQueue(queues[0]).getPreRequestDepositHook(), queuePreHook, "queue pre hook");
+        assertEq(
+            ERC7540LikeDepositQueue(queues[0]).getPostExecuteDepositRequestHook(), queuePostHook, "queue post hook"
+        );
+
+        address[] memory syncs = __collectProxiesFromFactory(logs, address(syncDepositHandlerFactory));
+        assertEq(SyncDepositHandler(syncs[0]).getPostDepositHook(), syncPostHook, "sync post hook");
+
+        address[] memory redeems = __collectProxiesFromFactory(logs, address(redeemQueueFactory));
+        assertEq(ERC7540LikeRedeemQueue(redeems[0]).getPreRequestRedeemHook(), redeemPreHook, "redeem pre hook");
+        assertEq(
+            ERC7540LikeRedeemQueue(redeems[0]).getPostExecuteRedeemRequestHook(), redeemPostHook, "redeem post hook"
+        );
+
+        address[] memory mintHandlers = __collectProxiesFromFactory(logs, address(sharesMintHandlerFactory));
+        assertEq(SharesMintHandler(mintHandlers[0]).getPreMintHook(), mintPreHook, "mint pre hook");
+
+        address[] memory burnHandlers = __collectProxiesFromFactory(logs, address(sharesBurnHandlerFactory));
+        assertEq(SharesBurnHandler(burnHandlers[0]).getPreBurnHook(), burnPreHook, "burn pre hook");
+
+        // No ACE validators were deployed for Existing hooks
+        assertEq(__collectProxiesFromFactory(logs, address(aceDepositQueuePreRequestValidatorFactory)).length, 0);
+        assertEq(__collectProxiesFromFactory(logs, address(aceDepositQueuePostExecuteValidatorFactory)).length, 0);
+        assertEq(__collectProxiesFromFactory(logs, address(aceSyncDepositPostDepositValidatorFactory)).length, 0);
+        assertEq(__collectProxiesFromFactory(logs, address(aceRedeemQueuePreRequestValidatorFactory)).length, 0);
+        assertEq(__collectProxiesFromFactory(logs, address(aceRedeemQueuePostExecuteValidatorFactory)).length, 0);
+        assertEq(__collectProxiesFromFactory(logs, address(aceMintPreMintValidatorFactory)).length, 0);
+        assertEq(__collectProxiesFromFactory(logs, address(aceBurnPreBurnValidatorFactory)).length, 0);
+    }
+
+    //==================================================================================================================
+    // Hook slots: None source
+    //==================================================================================================================
+
+    function test_deploy_hookSource_none_leavesHooksUnset() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
+        cfg.components.queueDepositHandlers[0] =
+            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.None);
+        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
+        cfg.components.syncDepositHandlers[0] = __syncCfg(address(usdc), 0);
+        cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](1);
+        cfg.components.redeemHandlers[0] = SharesDeployer.RedeemHandlerConfig({
+            asset: address(usdc),
+            minRequestDuration: 0,
+            preRequestRedeemHook: __hookNone(),
+            postExecuteRedeemRequestHook: __hookNone()
+        });
+
+        vm.recordLogs();
+        deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory queues = __collectProxiesFromFactory(logs, address(depositQueueFactory));
+        assertEq(ERC7540LikeDepositQueue(queues[0]).getPreRequestDepositHook(), address(0), "queue pre hook");
+        assertEq(ERC7540LikeDepositQueue(queues[0]).getPostExecuteDepositRequestHook(), address(0), "queue post hook");
+
+        address[] memory syncs = __collectProxiesFromFactory(logs, address(syncDepositHandlerFactory));
+        assertEq(SyncDepositHandler(syncs[0]).getPostDepositHook(), address(0), "sync post hook");
+
+        address[] memory redeems = __collectProxiesFromFactory(logs, address(redeemQueueFactory));
+        assertEq(ERC7540LikeRedeemQueue(redeems[0]).getPreRequestRedeemHook(), address(0), "redeem pre hook");
+        assertEq(ERC7540LikeRedeemQueue(redeems[0]).getPostExecuteRedeemRequestHook(), address(0), "redeem post hook");
+    }
+
+    //==================================================================================================================
+    // Hook slots: validation reverts
+    //==================================================================================================================
+
+    function test_deploy_revertsOn_hookExistingZero() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](1);
+        SharesDeployer.QueueDepositHandlerConfig memory qc =
+            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.None);
+        qc.preRequestDepositHook = __hookExisting(address(0));
+        cfg.components.queueDepositHandlers[0] = qc;
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__HookExistingCannotBeZero.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_hookPolicyEngineZero() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.sharesMintHandler =
+            SharesDeployer.SharesMintHandlerConfig({deploy: true, preMintHook: __hookAce(address(0))});
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__PolicyEngineCannotBeZero.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_mintHookWithoutHandlerDeploy() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.sharesMintHandler = SharesDeployer.SharesMintHandlerConfig({
+            deploy: false, preMintHook: __hookExisting(makeAddr("orphanMintHook"))
+        });
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__HookNotAllowedWithoutHandler.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_burnHookWithoutHandlerDeploy() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.sharesBurnHandler =
+            SharesDeployer.SharesBurnHandlerConfig({deploy: false, preBurnHook: __hookAce(policyEngineBurnPreBurn)});
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__HookNotAllowedWithoutHandler.selector);
+        deployer.deploy(cfg);
+    }
+
+    //==================================================================================================================
+    // TransferValidator: DeployChainlinkAce
+    //==================================================================================================================
+
+    function test_deploy_transferValidator_deployChainlinkAce() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
+            source: SharesDeployer.TransferValidatorSource.DeployChainlinkAce,
+            existing: address(0),
+            recipientList: __validatorListNone(),
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: policyEngineSharesTransfer
+        });
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory validators = __collectProxiesFromFactory(logs, address(aceSharesTransferValidatorFactory));
+        assertEq(validators.length, 1, "validator deployed");
+        assertEq(shares.getSharesTransferValidator(), validators[0], "wired on shares");
+        assertEq(
+            ChainlinkAceSharesTransferValidator(validators[0]).getPolicyEngine(),
+            policyEngineSharesTransfer,
+            "policy engine"
+        );
+    }
+
+    function test_deploy_revertsOn_transferValidatorChainlinkAce_policyEngineZero() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.transferValidator = SharesDeployer.TransferValidatorConfig({
+            source: SharesDeployer.TransferValidatorSource.DeployChainlinkAce,
+            existing: address(0),
+            recipientList: __validatorListNone(),
+            senderList: __validatorListNone(),
+            chainlinkAcePolicyEngine: address(0)
+        });
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__PolicyEngineCannotBeZero.selector);
+        deployer.deploy(cfg);
+    }
+
+    //==================================================================================================================
     // Helpers
     //==================================================================================================================
+
+    /// @dev Asserts that exactly one ACE issuance validator was deployed from `_aceFactory`, that it is
+    /// the handler's effective hook, and that it is bound to `_handler` and `_policyEngine`.
+    function __assertAceIssuanceValidator(
+        address _hook,
+        Vm.Log[] memory _logs,
+        address _aceFactory,
+        address _handler,
+        address _policyEngine,
+        string memory _label
+    ) internal view {
+        address[] memory validators = __collectProxiesFromFactory(_logs, _aceFactory);
+        assertEq(validators.length, 1, string.concat(_label, ": validator count"));
+        assertEq(_hook, validators[0], string.concat(_label, ": hook wired"));
+        assertEq(ChainlinkAceIssuanceValidatorBase(_hook).getHandler(), _handler, string.concat(_label, ": handler"));
+        assertEq(
+            ChainlinkAceIssuanceValidatorBase(_hook).getPolicyEngine(),
+            _policyEngine,
+            string.concat(_label, ": policy engine")
+        );
+    }
 
     function __queueCfg(address _asset, uint24 _minDuration, ERC7540LikeDepositQueue.DepositRestriction _restriction)
         internal
@@ -1362,7 +1897,9 @@ contract SharesDeployerTest is Test {
             externalListSource: SharesDeployer.ExternalListSource.None,
             externalListExisting: address(0),
             sharedAddressListIndex: 0,
-            allowedDepositors: new address[](0)
+            allowedDepositors: new address[](0),
+            preRequestDepositHook: __hookNone(),
+            postExecuteDepositRequestHook: __hookNone()
         });
     }
 
@@ -1376,7 +1913,8 @@ contract SharesDeployerTest is Test {
             maxSharePriceStaleness: _maxStaleness,
             depositorAllowlistSource: SharesDeployer.ExternalListSource.None,
             depositorAllowlistExisting: address(0),
-            sharedAddressListIndex: 0
+            sharedAddressListIndex: 0,
+            postDepositHook: __hookNone()
         });
     }
 
@@ -1386,6 +1924,24 @@ contract SharesDeployerTest is Test {
             externalListSource: SharesDeployer.ExternalListSource.None,
             externalListExisting: address(0),
             sharedAddressListIndex: 0
+        });
+    }
+
+    function __hookNone() internal pure returns (SharesDeployer.HookConfig memory) {
+        return SharesDeployer.HookConfig({
+            source: SharesDeployer.HookSource.None, existingHook: address(0), policyEngine: address(0)
+        });
+    }
+
+    function __hookExisting(address _hook) internal pure returns (SharesDeployer.HookConfig memory) {
+        return SharesDeployer.HookConfig({
+            source: SharesDeployer.HookSource.Existing, existingHook: _hook, policyEngine: address(0)
+        });
+    }
+
+    function __hookAce(address _policyEngine) internal pure returns (SharesDeployer.HookConfig memory) {
+        return SharesDeployer.HookConfig({
+            source: SharesDeployer.HookSource.DeployChainlinkAce, existingHook: address(0), policyEngine: _policyEngine
         });
     }
 

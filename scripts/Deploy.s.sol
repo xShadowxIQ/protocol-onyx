@@ -29,6 +29,30 @@ import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesB
 import {
     AddressListsSharesTransferValidator
 } from "src/components/shares-transfer-validators/AddressListsSharesTransferValidator.sol";
+import {
+    ChainlinkAceSharesTransferValidator
+} from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
+import {
+    ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator.sol";
+import {
+    ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator.sol";
+import {
+    ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator.sol";
+import {
+    ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator.sol";
+import {
+    ChainlinkAceSyncDepositHandlerPostDepositValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSyncDepositHandlerPostDepositValidator.sol";
+import {
+    ChainlinkAceSharesMintHandlerPreMintValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesMintHandlerPreMintValidator.sol";
+import {
+    ChainlinkAceSharesBurnHandlerPreBurnValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesBurnHandlerPreBurnValidator.sol";
 import {SharesDeployer} from "src/infra/deployment/SharesDeployer.sol";
 
 /// @notice Deploys core Onyx protocol contracts to a target network
@@ -56,6 +80,14 @@ contract DeployProtocol is Script {
         ComponentBeaconFactory sharesMintHandlerFactory;
         ComponentBeaconFactory sharesBurnHandlerFactory;
         ComponentBeaconFactory addressListsSharesTransferValidatorFactory;
+        ComponentBeaconFactory chainlinkAceDepositQueuePreRequestValidatorFactory;
+        ComponentBeaconFactory chainlinkAceDepositQueuePostExecuteValidatorFactory;
+        ComponentBeaconFactory chainlinkAceRedeemQueuePreRequestValidatorFactory;
+        ComponentBeaconFactory chainlinkAceRedeemQueuePostExecuteValidatorFactory;
+        ComponentBeaconFactory chainlinkAceSyncDepositPostDepositValidatorFactory;
+        ComponentBeaconFactory chainlinkAceMintPreMintValidatorFactory;
+        ComponentBeaconFactory chainlinkAceBurnPreBurnValidatorFactory;
+        ComponentBeaconFactory chainlinkAceSharesTransferValidatorFactory;
         Shares shares;
         FeeHandler feeHandler;
         ContinuousFlatRateManagementFeeTracker continuousFlatRateManagementFeeTracker;
@@ -73,6 +105,15 @@ contract DeployProtocol is Script {
         SharesMintHandler sharesMintHandler;
         SharesBurnHandler sharesBurnHandler;
         AddressListsSharesTransferValidator addressListsSharesTransferValidator;
+        ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator chainlinkAceDepositQueuePreRequestValidator;
+        ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator
+            chainlinkAceDepositQueuePostExecuteValidator;
+        ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator chainlinkAceRedeemQueuePreRequestValidator;
+        ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator chainlinkAceRedeemQueuePostExecuteValidator;
+        ChainlinkAceSyncDepositHandlerPostDepositValidator chainlinkAceSyncDepositPostDepositValidator;
+        ChainlinkAceSharesMintHandlerPreMintValidator chainlinkAceMintPreMintValidator;
+        ChainlinkAceSharesBurnHandlerPreBurnValidator chainlinkAceBurnPreBurnValidator;
+        ChainlinkAceSharesTransferValidator chainlinkAceSharesTransferValidator;
         SharesDeployer sharesDeployer;
     }
 
@@ -119,6 +160,18 @@ contract DeployProtocol is Script {
         addrs.sharesMintHandlerFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
         addrs.sharesBurnHandlerFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
         addrs.addressListsSharesTransferValidatorFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceDepositQueuePreRequestValidatorFactory =
+            new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceDepositQueuePostExecuteValidatorFactory =
+            new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceRedeemQueuePreRequestValidatorFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceRedeemQueuePostExecuteValidatorFactory =
+            new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceSyncDepositPostDepositValidatorFactory =
+            new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceMintPreMintValidatorFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceBurnPreBurnValidatorFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
+        addrs.chainlinkAceSharesTransferValidatorFactory = new ComponentBeaconFactory(address(addrs.globalProxy));
 
         /* ---------------------------------------------------------------------
          * Implementation contracts
@@ -142,6 +195,18 @@ contract DeployProtocol is Script {
         addrs.sharesMintHandler = new SharesMintHandler();
         addrs.sharesBurnHandler = new SharesBurnHandler();
         addrs.addressListsSharesTransferValidator = new AddressListsSharesTransferValidator();
+        addrs.chainlinkAceDepositQueuePreRequestValidator =
+            new ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator();
+        addrs.chainlinkAceDepositQueuePostExecuteValidator =
+            new ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator();
+        addrs.chainlinkAceRedeemQueuePreRequestValidator =
+            new ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidator();
+        addrs.chainlinkAceRedeemQueuePostExecuteValidator =
+            new ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidator();
+        addrs.chainlinkAceSyncDepositPostDepositValidator = new ChainlinkAceSyncDepositHandlerPostDepositValidator();
+        addrs.chainlinkAceMintPreMintValidator = new ChainlinkAceSharesMintHandlerPreMintValidator();
+        addrs.chainlinkAceBurnPreBurnValidator = new ChainlinkAceSharesBurnHandlerPreBurnValidator();
+        addrs.chainlinkAceSharesTransferValidator = new ChainlinkAceSharesTransferValidator();
 
         /* ---------------------------------------------------------------------
          * Set implementations
@@ -170,6 +235,20 @@ contract DeployProtocol is Script {
         addrs.sharesBurnHandlerFactory.setImplementation(address(addrs.sharesBurnHandler));
         addrs.addressListsSharesTransferValidatorFactory
             .setImplementation(address(addrs.addressListsSharesTransferValidator));
+        addrs.chainlinkAceDepositQueuePreRequestValidatorFactory
+            .setImplementation(address(addrs.chainlinkAceDepositQueuePreRequestValidator));
+        addrs.chainlinkAceDepositQueuePostExecuteValidatorFactory
+            .setImplementation(address(addrs.chainlinkAceDepositQueuePostExecuteValidator));
+        addrs.chainlinkAceRedeemQueuePreRequestValidatorFactory
+            .setImplementation(address(addrs.chainlinkAceRedeemQueuePreRequestValidator));
+        addrs.chainlinkAceRedeemQueuePostExecuteValidatorFactory
+            .setImplementation(address(addrs.chainlinkAceRedeemQueuePostExecuteValidator));
+        addrs.chainlinkAceSyncDepositPostDepositValidatorFactory
+            .setImplementation(address(addrs.chainlinkAceSyncDepositPostDepositValidator));
+        addrs.chainlinkAceMintPreMintValidatorFactory.setImplementation(address(addrs.chainlinkAceMintPreMintValidator));
+        addrs.chainlinkAceBurnPreBurnValidatorFactory.setImplementation(address(addrs.chainlinkAceBurnPreBurnValidator));
+        addrs.chainlinkAceSharesTransferValidatorFactory
+            .setImplementation(address(addrs.chainlinkAceSharesTransferValidator));
 
         /* ---------------------------------------------------------------------
          * Shares deployer
@@ -188,7 +267,27 @@ contract DeployProtocol is Script {
                 redeemQueueFactory: address(addrs.erc7540LikeRedeemQueueBeaconFactory),
                 sharesOwnedAddressListFactory: address(addrs.sharesOwnedAddressListFactory),
                 ownableAddressListFactory: address(addrs.ownableAddressListFactory),
-                addressListsSharesTransferValidatorFactory: address(addrs.addressListsSharesTransferValidatorFactory)
+                addressListsSharesTransferValidatorFactory: address(addrs.addressListsSharesTransferValidatorFactory),
+                sharesMintHandlerFactory: address(addrs.sharesMintHandlerFactory),
+                sharesBurnHandlerFactory: address(addrs.sharesBurnHandlerFactory),
+                aceDepositQueuePreRequestValidatorFactory: address(
+                    addrs.chainlinkAceDepositQueuePreRequestValidatorFactory
+                ),
+                aceDepositQueuePostExecuteValidatorFactory: address(
+                    addrs.chainlinkAceDepositQueuePostExecuteValidatorFactory
+                ),
+                aceRedeemQueuePreRequestValidatorFactory: address(
+                    addrs.chainlinkAceRedeemQueuePreRequestValidatorFactory
+                ),
+                aceRedeemQueuePostExecuteValidatorFactory: address(
+                    addrs.chainlinkAceRedeemQueuePostExecuteValidatorFactory
+                ),
+                aceSyncDepositPostDepositValidatorFactory: address(
+                    addrs.chainlinkAceSyncDepositPostDepositValidatorFactory
+                ),
+                aceMintPreMintValidatorFactory: address(addrs.chainlinkAceMintPreMintValidatorFactory),
+                aceBurnPreBurnValidatorFactory: address(addrs.chainlinkAceBurnPreBurnValidatorFactory),
+                aceSharesTransferValidatorFactory: address(addrs.chainlinkAceSharesTransferValidatorFactory)
             })
         );
 
@@ -229,6 +328,44 @@ contract DeployProtocol is Script {
         vm.serializeAddress(
             key, "AddressListsSharesTransferValidatorFactory", address(addrs.addressListsSharesTransferValidatorFactory)
         );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidatorFactory",
+            address(addrs.chainlinkAceDepositQueuePreRequestValidatorFactory)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidatorFactory",
+            address(addrs.chainlinkAceDepositQueuePostExecuteValidatorFactory)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidatorFactory",
+            address(addrs.chainlinkAceRedeemQueuePreRequestValidatorFactory)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidatorFactory",
+            address(addrs.chainlinkAceRedeemQueuePostExecuteValidatorFactory)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceSyncDepositHandlerPostDepositValidatorFactory",
+            address(addrs.chainlinkAceSyncDepositPostDepositValidatorFactory)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceSharesMintHandlerPreMintValidatorFactory",
+            address(addrs.chainlinkAceMintPreMintValidatorFactory)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceSharesBurnHandlerPreBurnValidatorFactory",
+            address(addrs.chainlinkAceBurnPreBurnValidatorFactory)
+        );
+        vm.serializeAddress(
+            key, "ChainlinkAceSharesTransferValidatorFactory", address(addrs.chainlinkAceSharesTransferValidatorFactory)
+        );
         vm.serializeAddress(key, "SharesLib", address(addrs.shares));
         vm.serializeAddress(key, "FeeHandlerLib", address(addrs.feeHandler));
         vm.serializeAddress(
@@ -252,6 +389,40 @@ contract DeployProtocol is Script {
         vm.serializeAddress(key, "SharesBurnHandlerLib", address(addrs.sharesBurnHandler));
         vm.serializeAddress(
             key, "AddressListsSharesTransferValidatorLib", address(addrs.addressListsSharesTransferValidator)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidatorLib",
+            address(addrs.chainlinkAceDepositQueuePreRequestValidator)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidatorLib",
+            address(addrs.chainlinkAceDepositQueuePostExecuteValidator)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidatorLib",
+            address(addrs.chainlinkAceRedeemQueuePreRequestValidator)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestValidatorLib",
+            address(addrs.chainlinkAceRedeemQueuePostExecuteValidator)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceSyncDepositHandlerPostDepositValidatorLib",
+            address(addrs.chainlinkAceSyncDepositPostDepositValidator)
+        );
+        vm.serializeAddress(
+            key, "ChainlinkAceSharesMintHandlerPreMintValidatorLib", address(addrs.chainlinkAceMintPreMintValidator)
+        );
+        vm.serializeAddress(
+            key, "ChainlinkAceSharesBurnHandlerPreBurnValidatorLib", address(addrs.chainlinkAceBurnPreBurnValidator)
+        );
+        vm.serializeAddress(
+            key, "ChainlinkAceSharesTransferValidatorLib", address(addrs.chainlinkAceSharesTransferValidator)
         );
         vm.serializeAddress(key, "CreWorkflowConsumerFactory", address(addrs.creWorkflowConsumerFactory));
         vm.serializeAddress(key, "CreWorkflowConsumerLib", address(addrs.creWorkflowConsumer));
