@@ -41,9 +41,3 @@ jobs:
           git push https://x-access-token:${GH_TOKEN}@github.com/enzymefinance/protocol-onyx.git \
             HEAD:main \
             --force-with-lease=refs/heads/main:refs/remotes/public/main
-
-      - name: Revoke Auth Token
-        if: always()
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: gh api --method DELETE /installation/token
