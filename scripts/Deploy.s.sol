@@ -33,6 +33,9 @@ import {
     ChainlinkAceSharesTransferValidator
 } from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferValidator.sol";
 import {
+    ChainlinkAceSharesTransferExtractor
+} from "src/components/shares-transfer-validators/ChainlinkAceSharesTransferExtractor.sol";
+import {
     ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidator.sol";
 import {
@@ -53,6 +56,27 @@ import {
 import {
     ChainlinkAceSharesBurnHandlerPreBurnValidator
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesBurnHandlerPreBurnValidator.sol";
+import {
+    ChainlinkAceERC7540LikeDepositQueuePreRequestDepositExtractor
+} from "src/components/issuance/hooks/chainlink-ace/extractors/ChainlinkAceERC7540LikeDepositQueuePreRequestDepositExtractor.sol";
+import {
+    ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractor
+} from "src/components/issuance/hooks/chainlink-ace/extractors/ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractor.sol";
+import {
+    ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemExtractor
+} from "src/components/issuance/hooks/chainlink-ace/extractors/ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemExtractor.sol";
+import {
+    ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestExtractor
+} from "src/components/issuance/hooks/chainlink-ace/extractors/ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestExtractor.sol";
+import {
+    ChainlinkAceSyncDepositHandlerPostDepositExtractor
+} from "src/components/issuance/hooks/chainlink-ace/extractors/ChainlinkAceSyncDepositHandlerPostDepositExtractor.sol";
+import {
+    ChainlinkAceSharesMintHandlerPreMintExtractor
+} from "src/components/issuance/hooks/chainlink-ace/extractors/ChainlinkAceSharesMintHandlerPreMintExtractor.sol";
+import {
+    ChainlinkAceSharesBurnHandlerPreBurnExtractor
+} from "src/components/issuance/hooks/chainlink-ace/extractors/ChainlinkAceSharesBurnHandlerPreBurnExtractor.sol";
 import {SharesDeployer} from "src/infra/deployment/SharesDeployer.sol";
 
 /// @notice Deploys core Onyx protocol contracts to a target network
@@ -114,6 +138,15 @@ contract DeployProtocol is Script {
         ChainlinkAceSharesMintHandlerPreMintValidator chainlinkAceMintPreMintValidator;
         ChainlinkAceSharesBurnHandlerPreBurnValidator chainlinkAceBurnPreBurnValidator;
         ChainlinkAceSharesTransferValidator chainlinkAceSharesTransferValidator;
+        ChainlinkAceERC7540LikeDepositQueuePreRequestDepositExtractor chainlinkAceDepositQueuePreRequestExtractor;
+        ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractor
+            chainlinkAceDepositQueuePostExecuteExtractor;
+        ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemExtractor chainlinkAceRedeemQueuePreRequestExtractor;
+        ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestExtractor chainlinkAceRedeemQueuePostExecuteExtractor;
+        ChainlinkAceSyncDepositHandlerPostDepositExtractor chainlinkAceSyncDepositPostDepositExtractor;
+        ChainlinkAceSharesMintHandlerPreMintExtractor chainlinkAceMintPreMintExtractor;
+        ChainlinkAceSharesBurnHandlerPreBurnExtractor chainlinkAceBurnPreBurnExtractor;
+        ChainlinkAceSharesTransferExtractor chainlinkAceSharesTransferExtractor;
         SharesDeployer sharesDeployer;
     }
 
@@ -207,6 +240,23 @@ contract DeployProtocol is Script {
         addrs.chainlinkAceMintPreMintValidator = new ChainlinkAceSharesMintHandlerPreMintValidator();
         addrs.chainlinkAceBurnPreBurnValidator = new ChainlinkAceSharesBurnHandlerPreBurnValidator();
         addrs.chainlinkAceSharesTransferValidator = new ChainlinkAceSharesTransferValidator();
+
+        /* ---------------------------------------------------------------------
+         * Chainlink ACE extractors
+         * (stateless singletons)
+         * -------------------------------------------------------------------*/
+        addrs.chainlinkAceDepositQueuePreRequestExtractor =
+            new ChainlinkAceERC7540LikeDepositQueuePreRequestDepositExtractor();
+        addrs.chainlinkAceDepositQueuePostExecuteExtractor =
+            new ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractor();
+        addrs.chainlinkAceRedeemQueuePreRequestExtractor =
+            new ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemExtractor();
+        addrs.chainlinkAceRedeemQueuePostExecuteExtractor =
+            new ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestExtractor();
+        addrs.chainlinkAceSyncDepositPostDepositExtractor = new ChainlinkAceSyncDepositHandlerPostDepositExtractor();
+        addrs.chainlinkAceMintPreMintExtractor = new ChainlinkAceSharesMintHandlerPreMintExtractor();
+        addrs.chainlinkAceBurnPreBurnExtractor = new ChainlinkAceSharesBurnHandlerPreBurnExtractor();
+        addrs.chainlinkAceSharesTransferExtractor = new ChainlinkAceSharesTransferExtractor();
 
         /* ---------------------------------------------------------------------
          * Set implementations
@@ -424,6 +474,40 @@ contract DeployProtocol is Script {
         vm.serializeAddress(
             key, "ChainlinkAceSharesTransferValidatorLib", address(addrs.chainlinkAceSharesTransferValidator)
         );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeDepositQueuePreRequestDepositExtractor",
+            address(addrs.chainlinkAceDepositQueuePreRequestExtractor)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestExtractor",
+            address(addrs.chainlinkAceDepositQueuePostExecuteExtractor)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemExtractor",
+            address(addrs.chainlinkAceRedeemQueuePreRequestExtractor)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceERC7540LikeRedeemQueuePostExecuteRedeemRequestExtractor",
+            address(addrs.chainlinkAceRedeemQueuePostExecuteExtractor)
+        );
+        vm.serializeAddress(
+            key,
+            "ChainlinkAceSyncDepositHandlerPostDepositExtractor",
+            address(addrs.chainlinkAceSyncDepositPostDepositExtractor)
+        );
+        vm.serializeAddress(
+            key, "ChainlinkAceSharesMintHandlerPreMintExtractor", address(addrs.chainlinkAceMintPreMintExtractor)
+        );
+        vm.serializeAddress(
+            key, "ChainlinkAceSharesBurnHandlerPreBurnExtractor", address(addrs.chainlinkAceBurnPreBurnExtractor)
+        );
+        vm.serializeAddress(
+            key, "ChainlinkAceSharesTransferExtractor", address(addrs.chainlinkAceSharesTransferExtractor)
+        );
         vm.serializeAddress(key, "CreWorkflowConsumerFactory", address(addrs.creWorkflowConsumerFactory));
         vm.serializeAddress(key, "CreWorkflowConsumerLib", address(addrs.creWorkflowConsumer));
         string memory json = vm.serializeAddress(key, "SharesDeployer", address(addrs.sharesDeployer));
@@ -448,6 +532,11 @@ contract DeployProtocol is Script {
         // Base
         if (block.chainid == 8453) {
             return 0xF8344CFd5c43616a4366C34E3EEE75af79a74482;
+        }
+
+        // BNB Smart Chain
+        if (block.chainid == 56) {
+            return 0x76c9cf548b4179F8901cda1f8623568b58215E62;
         }
 
         // Ethereum Sepolia

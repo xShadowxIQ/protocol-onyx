@@ -323,6 +323,10 @@ contract TestHelpers is Constants, Test {
         vm.createSelectFork(vm.envString("ETHEREUM_NODE_RAYLS"), RAYLS_BLOCK_LATEST);
     }
 
+    function createSelectBnbSmartChainFork() internal {
+        vm.createSelectFork(vm.envString("ETHEREUM_NODE_BNB_SMART_CHAIN"), BNB_SMART_CHAIN_BLOCK_LATEST);
+    }
+
     // MISC
 
     function increaseSharesSupply(address _shares, uint256 _increaseAmount) internal {
