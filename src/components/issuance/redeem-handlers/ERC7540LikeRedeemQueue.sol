@@ -274,8 +274,7 @@ contract ERC7540LikeRedeemQueue is IERC7540LikeRedeemHandler, ERC7540LikeIssuanc
             return;
         }
 
-        IERC7540LikeRedeemQueuePreRequestRedeemHook(hook)
-            .preRequestRedeem({
+        IERC7540LikeRedeemQueuePreRequestRedeemHook(hook).preRequestRedeem({
             _originator: _originator, _controller: _controller, _owner: _owner, _sharesAmount: _sharesAmount
         });
     }
@@ -294,8 +293,7 @@ contract ERC7540LikeRedeemQueue is IERC7540LikeRedeemHandler, ERC7540LikeIssuanc
             return;
         }
 
-        IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook(hook)
-            .postExecuteRedeemRequest({
+        IERC7540LikeRedeemQueuePostExecuteRedeemRequestHook(hook).postExecuteRedeemRequest({
             _originator: _originator,
             _controller: _controller,
             _owner: _owner,

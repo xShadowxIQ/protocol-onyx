@@ -33,8 +33,7 @@ contract ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidatorTest is Ch
     }
 
     function __callEntrypoint(address validator_) internal override {
-        ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidatorHarness(validator_)
-            .preRequestDeposit({
+        ChainlinkAceERC7540LikeDepositQueuePreRequestDepositValidatorHarness(validator_).preRequestDeposit({
             _originator: originator, _controller: controller, _owner: owner, _assetAmount: assetAmount
         });
     }

@@ -30,8 +30,9 @@ contract ChainlinkAceSharesBurnHandlerPreBurnValidatorTest is ChainlinkAceIssuan
     }
 
     function __callEntrypoint(address validator_) internal override {
-        ChainlinkAceSharesBurnHandlerPreBurnValidatorHarness(validator_)
-            .preBurn({_originator: originator, _from: holder, _sharesAmount: sharesAmount});
+        ChainlinkAceSharesBurnHandlerPreBurnValidatorHarness(validator_).preBurn({
+            _originator: originator, _from: holder, _sharesAmount: sharesAmount
+        });
     }
 
     function __expectedPayload(bytes memory context_) internal view override returns (IPolicyEngine.Payload memory) {

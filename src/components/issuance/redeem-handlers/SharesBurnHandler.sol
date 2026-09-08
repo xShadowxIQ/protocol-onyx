@@ -121,8 +121,9 @@ contract SharesBurnHandler is ComponentHelpersMixin {
             return;
         }
 
-        ISharesBurnHandlerPreBurnHook(hook)
-            .preBurn({_originator: _originator, _from: _from, _sharesAmount: _sharesAmount});
+        ISharesBurnHandlerPreBurnHook(hook).preBurn({
+            _originator: _originator, _from: _from, _sharesAmount: _sharesAmount
+        });
     }
 
     //==================================================================================================================

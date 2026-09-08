@@ -136,8 +136,9 @@ contract DepositorWallet is Initializable {
         onlyWalletsManager
     {
         for (uint256 i; i < _message.tokenAmounts.length; i++) {
-            IERC20(_message.tokenAmounts[i].token)
-                .forceApprove({spender: CCIP_ROUTER, value: _message.tokenAmounts[i].amount});
+            IERC20(_message.tokenAmounts[i].token).forceApprove({
+                spender: CCIP_ROUTER, value: _message.tokenAmounts[i].amount
+            });
         }
 
         bool hasNativeFee = _message.feeToken == address(0);

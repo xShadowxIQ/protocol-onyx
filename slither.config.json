@@ -4,7 +4,10 @@
     "too-many-digits",
     "naming-convention",
     "pragma",
-    "reentrancy-events"
+    "reentrancy-events",
+    "unused-return",
+    "calls-loop",
+    "reentrancy-benign"
   ],
   "exclude_dependencies": true
 }

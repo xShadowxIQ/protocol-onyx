@@ -60,8 +60,9 @@ contract FeeHandlerTestHelpers is TestHelpers {
         address recipient = makeAddr("setMockPerformanceFee:recipient");
 
         vm.prank(_admin);
-        FeeHandler(_feeHandler)
-            .setPerformanceFee({_performanceFeeTracker: performanceFeeTracker_, _recipient: recipient});
+        FeeHandler(_feeHandler).setPerformanceFee({
+            _performanceFeeTracker: performanceFeeTracker_, _recipient: recipient
+        });
     }
 }
 

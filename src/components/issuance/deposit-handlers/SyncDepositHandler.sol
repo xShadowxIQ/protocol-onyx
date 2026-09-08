@@ -242,8 +242,9 @@ contract SyncDepositHandler is Initializable, ComponentHelpersMixin {
             return;
         }
 
-        ISyncDepositHandlerPostDepositHook(hook)
-            .postDeposit({_originator: _originator, _sharesAmount: _sharesAmount, _assetAmount: _assetAmount});
+        ISyncDepositHandlerPostDepositHook(hook).postDeposit({
+            _originator: _originator, _sharesAmount: _sharesAmount, _assetAmount: _assetAmount
+        });
     }
 
     //==================================================================================================================

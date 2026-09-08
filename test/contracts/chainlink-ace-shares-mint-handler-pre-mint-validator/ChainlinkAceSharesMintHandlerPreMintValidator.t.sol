@@ -30,8 +30,9 @@ contract ChainlinkAceSharesMintHandlerPreMintValidatorTest is ChainlinkAceIssuan
     }
 
     function __callEntrypoint(address validator_) internal override {
-        ChainlinkAceSharesMintHandlerPreMintValidatorHarness(validator_)
-            .preMint({_originator: originator, _to: recipient, _sharesAmount: sharesAmount});
+        ChainlinkAceSharesMintHandlerPreMintValidatorHarness(validator_).preMint({
+            _originator: originator, _to: recipient, _sharesAmount: sharesAmount
+        });
     }
 
     function __expectedPayload(bytes memory context_) internal view override returns (IPolicyEngine.Payload memory) {

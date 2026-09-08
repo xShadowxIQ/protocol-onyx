@@ -38,12 +38,12 @@ contract ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidatorTe
     function __callEntrypoint(address validator_) internal override {
         ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidatorHarness(validator_)
             .postExecuteDepositRequest({
-            _originator: originator,
-            _controller: controller,
-            _owner: owner,
-            _sharesAmount: sharesAmount,
-            _assetAmount: assetAmount
-        });
+                _originator: originator,
+                _controller: controller,
+                _owner: owner,
+                _sharesAmount: sharesAmount,
+                _assetAmount: assetAmount
+            });
     }
 
     function __expectedPayload(bytes memory context_) internal view override returns (IPolicyEngine.Payload memory) {

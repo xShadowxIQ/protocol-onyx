@@ -32,8 +32,9 @@ contract ChainlinkAceSyncDepositHandlerPostDepositValidatorTest is ChainlinkAceI
     }
 
     function __callEntrypoint(address validator_) internal override {
-        ChainlinkAceSyncDepositHandlerPostDepositValidatorHarness(validator_)
-            .postDeposit({_originator: originator, _sharesAmount: sharesAmount, _assetAmount: assetAmount});
+        ChainlinkAceSyncDepositHandlerPostDepositValidatorHarness(validator_).postDeposit({
+            _originator: originator, _sharesAmount: sharesAmount, _assetAmount: assetAmount
+        });
     }
 
     function __expectedPayload(bytes memory context_) internal view override returns (IPolicyEngine.Payload memory) {

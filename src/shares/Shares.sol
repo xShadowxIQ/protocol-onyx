@@ -208,8 +208,9 @@ contract Shares is ERC20Upgradeable, Ownable2StepUpgradeable {
         address sharesTransferValidator = getSharesTransferValidator();
 
         if (sharesTransferValidator != address(0)) {
-            ISharesTransferValidator(sharesTransferValidator)
-                .validateSharesTransfer({_originator: _originator, _from: _from, _to: _to, _amount: _amount});
+            ISharesTransferValidator(sharesTransferValidator).validateSharesTransfer({
+                _originator: _originator, _from: _from, _to: _to, _amount: _amount
+            });
         }
     }
 

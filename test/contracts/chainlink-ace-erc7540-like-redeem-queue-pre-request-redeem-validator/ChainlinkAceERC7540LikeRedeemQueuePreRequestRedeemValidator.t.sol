@@ -33,8 +33,7 @@ contract ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidatorTest is Chai
     }
 
     function __callEntrypoint(address validator_) internal override {
-        ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidatorHarness(validator_)
-            .preRequestRedeem({
+        ChainlinkAceERC7540LikeRedeemQueuePreRequestRedeemValidatorHarness(validator_).preRequestRedeem({
             _originator: originator, _controller: controller, _owner: owner, _sharesAmount: sharesAmount
         });
     }

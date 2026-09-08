@@ -363,8 +363,7 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
             return;
         }
 
-        IERC7540LikeDepositQueuePreRequestDepositHook(hook)
-            .preRequestDeposit({
+        IERC7540LikeDepositQueuePreRequestDepositHook(hook).preRequestDeposit({
             _originator: _originator, _controller: _controller, _owner: _owner, _assetAmount: _assetAmount
         });
     }
@@ -383,8 +382,7 @@ contract ERC7540LikeDepositQueue is IERC7540LikeDepositHandler, ERC7540LikeIssua
             return;
         }
 
-        IERC7540LikeDepositQueuePostExecuteDepositRequestHook(hook)
-            .postExecuteDepositRequest({
+        IERC7540LikeDepositQueuePostExecuteDepositRequestHook(hook).postExecuteDepositRequest({
             _originator: _originator,
             _controller: _controller,
             _owner: _owner,
