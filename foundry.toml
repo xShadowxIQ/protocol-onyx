@@ -15,6 +15,7 @@ fs_permissions = [{ access = "write", path = "./deploy/"}]
 mainnet = "${ETHEREUM_NODE_MAINNET}"
 arbitrum = "${ETHEREUM_NODE_ARBITRUM}"
 base = "${ETHEREUM_NODE_BASE}"
+avalanche = "${ETHEREUM_NODE_AVALANCHE}"
 bnb_smart_chain = "${ETHEREUM_NODE_BNB_SMART_CHAIN}"
 plume = "${ETHEREUM_NODE_PLUME}"
 mega_eth = "${ETHEREUM_NODE_MEGA_ETH}"
@@ -25,6 +26,7 @@ rayls = "${ETHEREUM_NODE_RAYLS}"
 mainnet          = { key = "${ETHERSCAN_API_KEY}", chain = 1,        url = "https://api.etherscan.io/v2/api?chainid=1" }
 arbitrum         = { key = "${ETHERSCAN_API_KEY}", chain = 42161,    url = "https://api.etherscan.io/v2/api?chainid=42161" }
 base             = { key = "${ETHERSCAN_API_KEY}", chain = 8453,     url = "https://api.etherscan.io/v2/api?chainid=8453" }
+avalanche        = { key = "${ETHERSCAN_API_KEY}", chain = 43114,    url = "https://api.etherscan.io/v2/api?chainid=43114" }
 bnb_smart_chain  = { key = "${ETHERSCAN_API_KEY}", chain = 56,       url = "https://api.etherscan.io/v2/api?chainid=56" }
 ethereum_sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111, url = "https://api.etherscan.io/v2/api?chainid=11155111" }
 

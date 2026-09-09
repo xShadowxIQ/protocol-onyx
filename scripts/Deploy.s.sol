@@ -534,6 +534,11 @@ contract DeployProtocol is Script {
             return 0xF8344CFd5c43616a4366C34E3EEE75af79a74482;
         }
 
+        // Avalanche
+        if (block.chainid == 43114) {
+            return 0x76c9cf548b4179F8901cda1f8623568b58215E62;
+        }
+
         // BNB Smart Chain
         if (block.chainid == 56) {
             return 0x76c9cf548b4179F8901cda1f8623568b58215E62;

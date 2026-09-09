@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-ALL_NETWORKS := mainnet arbitrum base bnb_smart_chain ethereum_sepolia mega_eth plume rayls
+ALL_NETWORKS := mainnet arbitrum avalanche base bnb_smart_chain ethereum_sepolia mega_eth plume rayls
 
 .PHONY: help deploy _deploy-one
 
@@ -13,16 +13,16 @@ help:
 	@echo "NETWORK forms:"
 	@echo "  NETWORK=arbitrum                single network"
 	@echo "  NETWORK=arbitrum,base           comma-separated subset"
-	@echo "  NETWORK=all                     all 8 networks"
+	@echo "  NETWORK=all                     all 9 networks"
 	@echo ""
 	@echo "Supported networks: $(ALL_NETWORKS)"
 	@echo ""
 	@echo "Required env (read from .env by forge, not by make):"
-	@echo "  ETHERSCAN_API_KEY               Etherscan v2 unified key (mainnet, arbitrum, base, bnb_smart_chain, ethereum_sepolia), resolved via foundry.toml [etherscan]"
+	@echo "  ETHERSCAN_API_KEY               Etherscan v2 unified key (mainnet, arbitrum, avalanche, base, bnb_smart_chain, ethereum_sepolia), resolved via foundry.toml [etherscan]"
 	@echo "  ETHEREUM_NODE_<NETWORK>         RPC URL per .env.example, resolved via foundry.toml [rpc_endpoints]"
 	@echo ""
 	@echo "Verification:"
-	@echo "  Etherscan v2:  mainnet, arbitrum, base, bnb_smart_chain, ethereum_sepolia"
+	@echo "  Etherscan v2:  mainnet, arbitrum, avalanche, base, bnb_smart_chain, ethereum_sepolia"
 	@echo "  Blockscout:    mega_eth, plume, rayls (no API key required)"
 	@echo ""
 	@echo "Default keystore: <chain>-deployer (override with ACCOUNT=...)"
@@ -96,6 +96,7 @@ deploy:
 	  case "$$1" in \
 	    mainnet)          echo "38;5;33" ;; \
 	    arbitrum)         echo "38;5;208" ;; \
+	    avalanche)        echo "38;5;196" ;; \
 	    base)             echo "38;5;51" ;; \
 	    bnb_smart_chain)  echo "38;5;220" ;; \
 	    ethereum_sepolia) echo "38;5;141" ;; \
@@ -134,6 +135,7 @@ _deploy-one:
 	case "$$net" in \
 	  mainnet)          verify_flags="--verify";                                                                                            explorer="https://etherscan.io" ;; \
 	  arbitrum)         verify_flags="--verify";                                                                                            explorer="https://arbiscan.io" ;; \
+	  avalanche)        verify_flags="--verify";                                                                                            explorer="https://snowtrace.io" ;; \
 	  base)             verify_flags="--verify";                                                                                            explorer="https://basescan.org" ;; \
 	  bnb_smart_chain)  verify_flags="--verify";                                                                                            explorer="https://bscscan.com" ;; \
 	  ethereum_sepolia) verify_flags="--verify";                                                                                            explorer="https://sepolia.etherscan.io" ;; \
