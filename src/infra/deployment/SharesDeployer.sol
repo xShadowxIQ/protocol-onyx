@@ -29,6 +29,7 @@ import {
     ChainlinkAceIssuanceValidatorBase
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceIssuanceValidatorBase.sol";
 import {ERC7540LikeRedeemQueue} from "src/components/issuance/redeem-handlers/ERC7540LikeRedeemQueue.sol";
+import {SyncRedeemHandler} from "src/components/issuance/redeem-handlers/SyncRedeemHandler.sol";
 import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesBurnHandler.sol";
 import {
     AddressListsSharesTransferValidator
@@ -65,6 +66,7 @@ contract SharesDeployer {
         address linearCreditDebtTrackerFactory;
         address depositQueueFactory;
         address syncDepositHandlerFactory;
+        address syncRedeemHandlerFactory;
         address redeemQueueFactory;
         address sharesOwnedAddressListFactory;
         address ownableAddressListFactory;
@@ -76,6 +78,7 @@ contract SharesDeployer {
         address aceRedeemQueuePreRequestValidatorFactory;
         address aceRedeemQueuePostExecuteValidatorFactory;
         address aceSyncDepositPostDepositValidatorFactory;
+        address aceSyncRedeemPostRedeemValidatorFactory;
         address aceMintPreMintValidatorFactory;
         address aceBurnPreBurnValidatorFactory;
         address aceSharesTransferValidatorFactory;
@@ -202,6 +205,12 @@ contract SharesDeployer {
         HookConfig postDepositHook;
     }
 
+    struct SyncRedeemHandlerConfig {
+        address asset;
+        uint24 maxSharePriceStaleness;
+        HookConfig postRedeemHook;
+    }
+
     struct RedeemHandlerConfig {
         address asset;
         uint24 minRequestDuration;
@@ -256,6 +265,7 @@ contract SharesDeployer {
         LinearCreditDebtTrackerConfig linearCreditDebtTracker;
         QueueDepositHandlerConfig[] queueDepositHandlers;
         SyncDepositHandlerConfig[] syncDepositHandlers;
+        SyncRedeemHandlerConfig[] syncRedeemHandlers;
         RedeemHandlerConfig[] redeemHandlers;
         SharesMintHandlerConfig sharesMintHandler;
         SharesBurnHandlerConfig sharesBurnHandler;
@@ -288,6 +298,8 @@ contract SharesDeployer {
         address[] syncDepositHandlers;
         address[] syncDepositHandlerAllowlists;
         address[] syncDepositHandlerPostDepositHooks;
+        address[] syncRedeemHandlers;
+        address[] syncRedeemHandlerPostRedeemHooks;
         address[] redeemHandlers;
         address[] redeemHandlerPreRequestHooks;
         address[] redeemHandlerPostExecuteHooks;
@@ -315,6 +327,7 @@ contract SharesDeployer {
     address public immutable LINEAR_CREDIT_DEBT_TRACKER_FACTORY;
     address public immutable DEPOSIT_QUEUE_FACTORY;
     address public immutable SYNC_DEPOSIT_HANDLER_FACTORY;
+    address public immutable SYNC_REDEEM_HANDLER_FACTORY;
     address public immutable REDEEM_QUEUE_FACTORY;
     address public immutable SHARES_OWNED_ADDRESS_LIST_FACTORY;
     address public immutable OWNABLE_ADDRESS_LIST_FACTORY;
@@ -326,6 +339,7 @@ contract SharesDeployer {
     address public immutable CHAINLINK_ACE_REDEEM_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY;
     address public immutable CHAINLINK_ACE_REDEEM_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY;
     address public immutable CHAINLINK_ACE_SYNC_DEPOSIT_POST_DEPOSIT_VALIDATOR_FACTORY;
+    address public immutable CHAINLINK_ACE_SYNC_REDEEM_POST_REDEEM_VALIDATOR_FACTORY;
     address public immutable CHAINLINK_ACE_MINT_PRE_MINT_VALIDATOR_FACTORY;
     address public immutable CHAINLINK_ACE_BURN_PRE_BURN_VALIDATOR_FACTORY;
     address public immutable CHAINLINK_ACE_SHARES_TRANSFER_VALIDATOR_FACTORY;
@@ -373,6 +387,7 @@ contract SharesDeployer {
         LINEAR_CREDIT_DEBT_TRACKER_FACTORY = _factories.linearCreditDebtTrackerFactory;
         DEPOSIT_QUEUE_FACTORY = _factories.depositQueueFactory;
         SYNC_DEPOSIT_HANDLER_FACTORY = _factories.syncDepositHandlerFactory;
+        SYNC_REDEEM_HANDLER_FACTORY = _factories.syncRedeemHandlerFactory;
         REDEEM_QUEUE_FACTORY = _factories.redeemQueueFactory;
         SHARES_OWNED_ADDRESS_LIST_FACTORY = _factories.sharesOwnedAddressListFactory;
         OWNABLE_ADDRESS_LIST_FACTORY = _factories.ownableAddressListFactory;
@@ -385,6 +400,7 @@ contract SharesDeployer {
         CHAINLINK_ACE_REDEEM_QUEUE_PRE_REQUEST_VALIDATOR_FACTORY = _factories.aceRedeemQueuePreRequestValidatorFactory;
         CHAINLINK_ACE_REDEEM_QUEUE_POST_EXECUTE_VALIDATOR_FACTORY = _factories.aceRedeemQueuePostExecuteValidatorFactory;
         CHAINLINK_ACE_SYNC_DEPOSIT_POST_DEPOSIT_VALIDATOR_FACTORY = _factories.aceSyncDepositPostDepositValidatorFactory;
+        CHAINLINK_ACE_SYNC_REDEEM_POST_REDEEM_VALIDATOR_FACTORY = _factories.aceSyncRedeemPostRedeemValidatorFactory;
         CHAINLINK_ACE_MINT_PRE_MINT_VALIDATOR_FACTORY = _factories.aceMintPreMintValidatorFactory;
         CHAINLINK_ACE_BURN_PRE_BURN_VALIDATOR_FACTORY = _factories.aceBurnPreBurnValidatorFactory;
         CHAINLINK_ACE_SHARES_TRANSFER_VALIDATOR_FACTORY = _factories.aceSharesTransferValidatorFactory;
@@ -418,6 +434,7 @@ contract SharesDeployer {
         __deployFeeStack(d, _cfg);
         __deployQueueDepositHandlers(d, _cfg);
         __deploySyncDepositHandlers(d, _cfg);
+        __deploySyncRedeemHandlers(d, _cfg);
         __deployRedeemHandlers(d, _cfg);
         __deployMintBurnHandlers(d, _cfg);
 
@@ -479,6 +496,11 @@ contract SharesDeployer {
         SyncDepositHandlerConfig[] calldata syncDepositHandlers = _cfg.components.syncDepositHandlers;
         for (uint256 i; i < syncDepositHandlers.length; i++) {
             __validateSyncDepositHandler(syncDepositHandlers[i], sharedListCount);
+        }
+
+        SyncRedeemHandlerConfig[] calldata syncRedeemHandlers = _cfg.components.syncRedeemHandlers;
+        for (uint256 i; i < syncRedeemHandlers.length; i++) {
+            __validateHookConfig(syncRedeemHandlers[i].postRedeemHook);
         }
 
         RedeemHandlerConfig[] calldata redeemHandlers = _cfg.components.redeemHandlers;
@@ -873,6 +895,53 @@ contract SharesDeployer {
         });
         if (postDepositHook != address(0)) _h.setPostDepositHook(postDepositHook);
         _d.syncDepositHandlerPostDepositHooks[_i] = postDepositHook;
+    }
+
+    //==================================================================================================================
+    // Internal: sync redeem handlers
+    //==================================================================================================================
+
+    function __deploySyncRedeemHandlers(Deployed memory _d, DeployConfig calldata _cfg) internal {
+        SyncRedeemHandlerConfig[] calldata cfgs = _cfg.components.syncRedeemHandlers;
+        address[] memory deployed = new address[](cfgs.length);
+        _d.syncRedeemHandlerPostRedeemHooks = new address[](cfgs.length);
+        Shares shares = Shares(_d.shares);
+
+        for (uint256 i; i < cfgs.length; i++) {
+            SyncRedeemHandlerConfig calldata c = cfgs[i];
+            SyncRedeemHandler h = SyncRedeemHandler(
+                ComponentBeaconFactory(SYNC_REDEEM_HANDLER_FACTORY)
+                    .deployProxy(_d.shares, abi.encodeCall(SyncRedeemHandler.init, (c.asset)))
+            );
+
+            if (c.maxSharePriceStaleness != 0) {
+                h.setMaxSharePriceStaleness(c.maxSharePriceStaleness);
+            }
+
+            __wireSyncRedeemHooks(_d, c, h, i);
+
+            shares.addRedeemHandler(address(h));
+            deployed[i] = address(h);
+        }
+
+        _d.syncRedeemHandlers = deployed;
+    }
+
+    /// @dev Hook array on `_d` must be pre-allocated to the sync redeem handler count.
+    function __wireSyncRedeemHooks(
+        Deployed memory _d,
+        SyncRedeemHandlerConfig calldata _c,
+        SyncRedeemHandler _h,
+        uint256 _i
+    ) internal {
+        address postRedeemHook = __resolveHook({
+            _c: _c.postRedeemHook,
+            _aceValidatorFactory: CHAINLINK_ACE_SYNC_REDEEM_POST_REDEEM_VALIDATOR_FACTORY,
+            _shares: _d.shares,
+            _handler: address(_h)
+        });
+        if (postRedeemHook != address(0)) _h.setPostRedeemHook(postRedeemHook);
+        _d.syncRedeemHandlerPostRedeemHooks[_i] = postRedeemHook;
     }
 
     //==================================================================================================================

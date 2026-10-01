@@ -26,6 +26,9 @@ import {
     ChainlinkAceSyncDepositHandlerPostDepositValidator
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSyncDepositHandlerPostDepositValidator.sol";
 import {
+    ChainlinkAceSyncRedeemHandlerPostRedeemValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSyncRedeemHandlerPostRedeemValidator.sol";
+import {
     ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceERC7540LikeDepositQueuePostExecuteDepositRequestValidator.sol";
 import {
@@ -140,6 +143,19 @@ contract TestHelpers is Constants, Test {
     ) internal returns (address validator_) {
         return __deployChainlinkAceIssuanceValidator({
             _implementation: address(new ChainlinkAceSyncDepositHandlerPostDepositValidator()),
+            _shares: _shares,
+            _handler: _handler,
+            _policyEngine: _policyEngine
+        });
+    }
+
+    function deployChainlinkAceSyncRedeemHandlerPostRedeemValidator(
+        address _shares,
+        address _handler,
+        address _policyEngine
+    ) internal returns (address validator_) {
+        return __deployChainlinkAceIssuanceValidator({
+            _implementation: address(new ChainlinkAceSyncRedeemHandlerPostRedeemValidator()),
             _shares: _shares,
             _handler: _handler,
             _policyEngine: _policyEngine

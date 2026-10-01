@@ -41,6 +41,9 @@ import {
     ChainlinkAceSyncDepositHandlerPostDepositValidator
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSyncDepositHandlerPostDepositValidator.sol";
 import {
+    ChainlinkAceSyncRedeemHandlerPostRedeemValidator
+} from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSyncRedeemHandlerPostRedeemValidator.sol";
+import {
     ChainlinkAceSharesMintHandlerPreMintValidator
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceSharesMintHandlerPreMintValidator.sol";
 import {
@@ -50,6 +53,7 @@ import {
     ChainlinkAceIssuanceValidatorBase
 } from "src/components/issuance/hooks/chainlink-ace/ChainlinkAceIssuanceValidatorBase.sol";
 import {ERC7540LikeRedeemQueue} from "src/components/issuance/redeem-handlers/ERC7540LikeRedeemQueue.sol";
+import {SyncRedeemHandler} from "src/components/issuance/redeem-handlers/SyncRedeemHandler.sol";
 import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesBurnHandler.sol";
 import {SharesOwnedAddressList} from "src/components/lists/SharesOwnedAddressList.sol";
 import {
@@ -82,6 +86,7 @@ contract SharesDeployerTest is TestHelpers {
     ComponentBeaconFactory linearCreditDebtTrackerFactory;
     ComponentBeaconFactory depositQueueFactory;
     ComponentBeaconFactory syncDepositHandlerFactory;
+    ComponentBeaconFactory syncRedeemHandlerFactory;
     ComponentBeaconFactory redeemQueueFactory;
     ComponentBeaconFactory sharesOwnedAddressListFactory;
     BeaconFactory ownableAddressListFactory;
@@ -93,6 +98,7 @@ contract SharesDeployerTest is TestHelpers {
     ComponentBeaconFactory aceRedeemQueuePreRequestValidatorFactory;
     ComponentBeaconFactory aceRedeemQueuePostExecuteValidatorFactory;
     ComponentBeaconFactory aceSyncDepositPostDepositValidatorFactory;
+    ComponentBeaconFactory aceSyncRedeemPostRedeemValidatorFactory;
     ComponentBeaconFactory aceMintPreMintValidatorFactory;
     ComponentBeaconFactory aceBurnPreBurnValidatorFactory;
     ComponentBeaconFactory aceSharesTransferValidatorFactory;
@@ -105,6 +111,7 @@ contract SharesDeployerTest is TestHelpers {
     address policyEngineMintPreMint;
     address policyEngineBurnPreBurn;
     address policyEngineSharesTransfer;
+    address policyEngineSyncPostRedeem;
 
     address deployerWallet = makeAddr("deployerWallet");
     address vaultOwner = makeAddr("vaultOwner");
@@ -133,6 +140,7 @@ contract SharesDeployerTest is TestHelpers {
         linearCreditDebtTrackerFactory = new ComponentBeaconFactory(address(global));
         depositQueueFactory = new ComponentBeaconFactory(address(global));
         syncDepositHandlerFactory = new ComponentBeaconFactory(address(global));
+        syncRedeemHandlerFactory = new ComponentBeaconFactory(address(global));
         redeemQueueFactory = new ComponentBeaconFactory(address(global));
         sharesOwnedAddressListFactory = new ComponentBeaconFactory(address(global));
         ownableAddressListFactory = new BeaconFactory(address(global));
@@ -144,6 +152,7 @@ contract SharesDeployerTest is TestHelpers {
         aceRedeemQueuePreRequestValidatorFactory = new ComponentBeaconFactory(address(global));
         aceRedeemQueuePostExecuteValidatorFactory = new ComponentBeaconFactory(address(global));
         aceSyncDepositPostDepositValidatorFactory = new ComponentBeaconFactory(address(global));
+        aceSyncRedeemPostRedeemValidatorFactory = new ComponentBeaconFactory(address(global));
         aceMintPreMintValidatorFactory = new ComponentBeaconFactory(address(global));
         aceBurnPreBurnValidatorFactory = new ComponentBeaconFactory(address(global));
         aceSharesTransferValidatorFactory = new ComponentBeaconFactory(address(global));
@@ -157,6 +166,7 @@ contract SharesDeployerTest is TestHelpers {
         linearCreditDebtTrackerFactory.setImplementation(address(new LinearCreditDebtTracker()));
         depositQueueFactory.setImplementation(address(new ERC7540LikeDepositQueue()));
         syncDepositHandlerFactory.setImplementation(address(new SyncDepositHandler()));
+        syncRedeemHandlerFactory.setImplementation(address(new SyncRedeemHandler()));
         redeemQueueFactory.setImplementation(address(new ERC7540LikeRedeemQueue()));
         sharesOwnedAddressListFactory.setImplementation(address(new SharesOwnedAddressList()));
         ownableAddressListFactory.setImplementation(address(new OwnableAddressList()));
@@ -178,6 +188,9 @@ contract SharesDeployerTest is TestHelpers {
         aceSyncDepositPostDepositValidatorFactory.setImplementation(
             address(new ChainlinkAceSyncDepositHandlerPostDepositValidator())
         );
+        aceSyncRedeemPostRedeemValidatorFactory.setImplementation(
+            address(new ChainlinkAceSyncRedeemHandlerPostRedeemValidator())
+        );
         aceMintPreMintValidatorFactory.setImplementation(address(new ChainlinkAceSharesMintHandlerPreMintValidator()));
         aceBurnPreBurnValidatorFactory.setImplementation(address(new ChainlinkAceSharesBurnHandlerPreBurnValidator()));
         aceSharesTransferValidatorFactory.setImplementation(address(new ChainlinkAceSharesTransferValidator()));
@@ -192,6 +205,7 @@ contract SharesDeployerTest is TestHelpers {
             linearCreditDebtTrackerFactory: address(linearCreditDebtTrackerFactory),
             depositQueueFactory: address(depositQueueFactory),
             syncDepositHandlerFactory: address(syncDepositHandlerFactory),
+            syncRedeemHandlerFactory: address(syncRedeemHandlerFactory),
             redeemQueueFactory: address(redeemQueueFactory),
             sharesOwnedAddressListFactory: address(sharesOwnedAddressListFactory),
             ownableAddressListFactory: address(ownableAddressListFactory),
@@ -203,6 +217,7 @@ contract SharesDeployerTest is TestHelpers {
             aceRedeemQueuePreRequestValidatorFactory: address(aceRedeemQueuePreRequestValidatorFactory),
             aceRedeemQueuePostExecuteValidatorFactory: address(aceRedeemQueuePostExecuteValidatorFactory),
             aceSyncDepositPostDepositValidatorFactory: address(aceSyncDepositPostDepositValidatorFactory),
+            aceSyncRedeemPostRedeemValidatorFactory: address(aceSyncRedeemPostRedeemValidatorFactory),
             aceMintPreMintValidatorFactory: address(aceMintPreMintValidatorFactory),
             aceBurnPreBurnValidatorFactory: address(aceBurnPreBurnValidatorFactory),
             aceSharesTransferValidatorFactory: address(aceSharesTransferValidatorFactory)
@@ -218,6 +233,7 @@ contract SharesDeployerTest is TestHelpers {
         policyEngineMintPreMint = deployPolicyEngine(true, bytes32(uint256(6)));
         policyEngineBurnPreBurn = deployPolicyEngine(true, bytes32(uint256(7)));
         policyEngineSharesTransfer = deployPolicyEngine(true, bytes32(uint256(8)));
+        policyEngineSyncPostRedeem = deployPolicyEngine(true, bytes32(uint256(9)));
 
         usdc = new MockERC20(6);
         weth = new MockERC20(18);
@@ -299,6 +315,11 @@ contract SharesDeployerTest is TestHelpers {
             depositorAllowlistExisting: depositorAllowlist,
             sharedAddressListIndex: 0,
             postDepositHook: __hookAce(policyEngineSyncPostDeposit)
+        });
+
+        cfg.components.syncRedeemHandlers = new SharesDeployer.SyncRedeemHandlerConfig[](1);
+        cfg.components.syncRedeemHandlers[0] = SharesDeployer.SyncRedeemHandlerConfig({
+            asset: address(weth), maxSharePriceStaleness: 900, postRedeemHook: __hookAce(policyEngineSyncPostRedeem)
         });
 
         cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](1);
@@ -415,6 +436,16 @@ contract SharesDeployerTest is TestHelpers {
             _handler: syncs[0],
             _policyEngine: policyEngineSyncPostDeposit,
             _label: "sync postDeposit"
+        });
+
+        address[] memory syncRedeems = __collectProxiesFromFactory(_logs, address(syncRedeemHandlerFactory));
+        __assertAceIssuanceValidator({
+            _hook: SyncRedeemHandler(syncRedeems[0]).getPostRedeemHook(),
+            _logs: _logs,
+            _aceFactory: address(aceSyncRedeemPostRedeemValidatorFactory),
+            _handler: syncRedeems[0],
+            _policyEngine: policyEngineSyncPostRedeem,
+            _label: "sync postRedeem"
         });
     }
 
@@ -596,6 +627,16 @@ contract SharesDeployerTest is TestHelpers {
             _d.syncDepositHandlerPostDepositHooks[0],
             __collectProxiesFromFactory(_logs, address(aceSyncDepositPostDepositValidatorFactory))[0],
             "sync postDeposit hook"
+        );
+
+        address[] memory syncRedeems = __collectProxiesFromFactory(_logs, address(syncRedeemHandlerFactory));
+        assertEq(_d.syncRedeemHandlers.length, syncRedeems.length, "sync redeem count");
+        assertEq(_d.syncRedeemHandlers[0], syncRedeems[0], "sync redeem addr");
+        assertEq(_d.syncRedeemHandlerPostRedeemHooks.length, 1, "sync redeem postRedeem hooks len");
+        assertEq(
+            _d.syncRedeemHandlerPostRedeemHooks[0],
+            __collectProxiesFromFactory(_logs, address(aceSyncRedeemPostRedeemValidatorFactory))[0],
+            "sync redeem postRedeem hook"
         );
 
         address[] memory redeems = __collectProxiesFromFactory(_logs, address(redeemQueueFactory));
@@ -1178,6 +1219,31 @@ contract SharesDeployerTest is TestHelpers {
     }
 
     //==================================================================================================================
+    // SyncRedeemHandler
+    //==================================================================================================================
+
+    function test_deploy_syncRedeemHandler_withOptions() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.components.syncRedeemHandlers = new SharesDeployer.SyncRedeemHandlerConfig[](1);
+        SharesDeployer.SyncRedeemHandlerConfig memory sc = __syncRedeemCfg(address(weth), 1234);
+        address postHook = makeAddr("syncRedeemPostHook");
+        sc.postRedeemHook = __hookExisting(postHook);
+        cfg.components.syncRedeemHandlers[0] = sc;
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address[] memory handlers = __collectProxiesFromFactory(logs, address(syncRedeemHandlerFactory));
+        assertEq(handlers.length, 1, "sync redeem count");
+        SyncRedeemHandler handler = SyncRedeemHandler(handlers[0]);
+        assertEq(handler.getAsset(), address(weth), "asset");
+        assertEq(handler.getMaxSharePriceStaleness(), 1234, "staleness");
+        assertEq(handler.getPostRedeemHook(), postHook, "post redeem hook");
+        assertTrue(shares.isRedeemHandler(handlers[0]), "registered as redeem handler");
+    }
+
+    //==================================================================================================================
     // TransferValidator
     //==================================================================================================================
 
@@ -1674,6 +1740,7 @@ contract SharesDeployerTest is TestHelpers {
         address queuePreHook = makeAddr("queuePreHook");
         address queuePostHook = makeAddr("queuePostHook");
         address syncPostHook = makeAddr("syncPostHook");
+        address syncRedeemPostHook = makeAddr("syncRedeemPostHook");
         address redeemPreHook = makeAddr("redeemPreHook");
         address redeemPostHook = makeAddr("redeemPostHook");
         address mintPreHook = makeAddr("mintPreHook");
@@ -1690,6 +1757,11 @@ contract SharesDeployerTest is TestHelpers {
         SharesDeployer.SyncDepositHandlerConfig memory sc = __syncCfg(address(usdc), 0);
         sc.postDepositHook = __hookExisting(syncPostHook);
         cfg.components.syncDepositHandlers[0] = sc;
+
+        cfg.components.syncRedeemHandlers = new SharesDeployer.SyncRedeemHandlerConfig[](1);
+        SharesDeployer.SyncRedeemHandlerConfig memory src = __syncRedeemCfg(address(usdc), 0);
+        src.postRedeemHook = __hookExisting(syncRedeemPostHook);
+        cfg.components.syncRedeemHandlers[0] = src;
 
         cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](1);
         cfg.components.redeemHandlers[0] = SharesDeployer.RedeemHandlerConfig({
@@ -1717,6 +1789,9 @@ contract SharesDeployerTest is TestHelpers {
         address[] memory syncs = __collectProxiesFromFactory(logs, address(syncDepositHandlerFactory));
         assertEq(SyncDepositHandler(syncs[0]).getPostDepositHook(), syncPostHook, "sync post hook");
 
+        address[] memory syncRedeems = __collectProxiesFromFactory(logs, address(syncRedeemHandlerFactory));
+        assertEq(SyncRedeemHandler(syncRedeems[0]).getPostRedeemHook(), syncRedeemPostHook, "sync redeem post hook");
+
         address[] memory redeems = __collectProxiesFromFactory(logs, address(redeemQueueFactory));
         assertEq(ERC7540LikeRedeemQueue(redeems[0]).getPreRequestRedeemHook(), redeemPreHook, "redeem pre hook");
         assertEq(
@@ -1733,6 +1808,7 @@ contract SharesDeployerTest is TestHelpers {
         assertEq(__collectProxiesFromFactory(logs, address(aceDepositQueuePreRequestValidatorFactory)).length, 0);
         assertEq(__collectProxiesFromFactory(logs, address(aceDepositQueuePostExecuteValidatorFactory)).length, 0);
         assertEq(__collectProxiesFromFactory(logs, address(aceSyncDepositPostDepositValidatorFactory)).length, 0);
+        assertEq(__collectProxiesFromFactory(logs, address(aceSyncRedeemPostRedeemValidatorFactory)).length, 0);
         assertEq(__collectProxiesFromFactory(logs, address(aceRedeemQueuePreRequestValidatorFactory)).length, 0);
         assertEq(__collectProxiesFromFactory(logs, address(aceRedeemQueuePostExecuteValidatorFactory)).length, 0);
         assertEq(__collectProxiesFromFactory(logs, address(aceMintPreMintValidatorFactory)).length, 0);
@@ -1750,6 +1826,8 @@ contract SharesDeployerTest is TestHelpers {
             __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.None);
         cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](1);
         cfg.components.syncDepositHandlers[0] = __syncCfg(address(usdc), 0);
+        cfg.components.syncRedeemHandlers = new SharesDeployer.SyncRedeemHandlerConfig[](1);
+        cfg.components.syncRedeemHandlers[0] = __syncRedeemCfg(address(usdc), 0);
         cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](1);
         cfg.components.redeemHandlers[0] = SharesDeployer.RedeemHandlerConfig({
             asset: address(usdc),
@@ -1768,6 +1846,9 @@ contract SharesDeployerTest is TestHelpers {
 
         address[] memory syncs = __collectProxiesFromFactory(logs, address(syncDepositHandlerFactory));
         assertEq(SyncDepositHandler(syncs[0]).getPostDepositHook(), address(0), "sync post hook");
+
+        address[] memory syncRedeems = __collectProxiesFromFactory(logs, address(syncRedeemHandlerFactory));
+        assertEq(SyncRedeemHandler(syncRedeems[0]).getPostRedeemHook(), address(0), "sync redeem post hook");
 
         address[] memory redeems = __collectProxiesFromFactory(logs, address(redeemQueueFactory));
         assertEq(ERC7540LikeRedeemQueue(redeems[0]).getPreRequestRedeemHook(), address(0), "redeem pre hook");
@@ -1915,6 +1996,16 @@ contract SharesDeployerTest is TestHelpers {
             depositorAllowlistExisting: address(0),
             sharedAddressListIndex: 0,
             postDepositHook: __hookNone()
+        });
+    }
+
+    function __syncRedeemCfg(address _asset, uint24 _maxStaleness)
+        internal
+        pure
+        returns (SharesDeployer.SyncRedeemHandlerConfig memory cfg_)
+    {
+        cfg_ = SharesDeployer.SyncRedeemHandlerConfig({
+            asset: _asset, maxSharePriceStaleness: _maxStaleness, postRedeemHook: __hookNone()
         });
     }
 

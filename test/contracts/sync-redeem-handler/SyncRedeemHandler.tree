@@ -1,0 +1,54 @@
+SyncRedeemHandlerTest
+├── When initializing the handler
+│   ├── When the handler is already initialized
+│   │   └── It should revert with {InvalidInitialization} from the handler.
+│   └── When the handler is not initialized
+│       ├── It should store the asset and the default config.
+│       └── It should emit {AssetSet}.
+├── When setting the max share price staleness
+│   ├── When the staleness setter is not the admin or owner
+│   │   └── It should revert with {ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized} from the handler.
+│   └── When the staleness setter is the admin or owner
+│       ├── It should store the max share price staleness.
+│       └── It should emit {MaxSharePriceStalenessSet}.
+├── When setting the post-redeem hook
+│   ├── When the hook setter is not the admin or owner
+│   │   └── It should revert with {ComponentHelpersMixin__OnlyAdminOrOwner__Unauthorized} from the handler.
+│   └── When the hook setter is the admin or owner
+│       ├── It should store the post-redeem hook.
+│       └── It should emit {PostRedeemHookSet}.
+└── When redeeming shares
+    ├── When the redeemed shares amount is zero
+    │   └── It should revert with {SyncRedeemHandler__Redeem__ZeroShares} from the handler.
+    └── When the redeemed shares amount is non-zero
+        ├── Given the share price is older than the staleness cap
+        │   ├── Given the staleness cap is the default of zero
+        │   │   └── It should revert with {SyncRedeemHandler__ValidateSharePriceTimestamp__SharePriceStale} from the handler.
+        │   └── Given the staleness cap is a positive duration
+        │       └── It should revert with {SyncRedeemHandler__ValidateSharePriceTimestamp__SharePriceStale} from the handler.
+        ├── Given the payout asset rate is expired
+        │   └── It should revert with {ValuationHandler__ValidateRate__RateExpired} from ValuationHandler.
+        ├── Given the payout rounds to zero assets
+        │   └── It should revert with {SyncRedeemHandler__Redeem__ZeroAssets} from the handler.
+        ├── Given the vault holds less of the payout asset than the quoted amount
+        │   ├── It should revert with {ERC20InsufficientBalance} from the payout asset.
+        │   └── It should leave the caller's share balance unchanged.
+        ├── Given the caller does not hold the shares
+        │   └── It should revert with {ERC20InsufficientBalance} from Shares.
+        └── Given the vault can pay the redeem
+            ├── Given no exit fee and no post-redeem hook
+            │   ├── It should pay the computed assets to the caller.
+            │   ├── It should burn the gross shares from the caller.
+            │   └── It should emit {Redeem}.
+            ├── Given the share price is exactly maxStaleness seconds old
+            │   └── It should pay the computed assets to the caller.
+            ├── Given staleness checking is disabled
+            │   └── It should pay the computed assets to the caller.
+            ├── Given an exit fee is set
+            │   ├── It should pay assets computed on the shares after the exit fee.
+            │   └── It should book the exit fee value owed to the fee recipient.
+            └── Given a post-redeem hook is set
+                ├── When the hook returns
+                │   └── It should call the hook with the originator, gross shares, and assets paid.
+                └── When the hook reverts
+                    └── It should leave share and asset balances unchanged.
