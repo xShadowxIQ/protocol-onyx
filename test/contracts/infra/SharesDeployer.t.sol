@@ -15,6 +15,7 @@ import {Test, Vm} from "forge-std/Test.sol";
 
 import {BeaconFactory} from "src/factories/BeaconFactory.sol";
 import {ComponentBeaconFactory} from "src/factories/ComponentBeaconFactory.sol";
+import {CreWorkflowConsumer} from "src/components/automations/chainlink-cre/CreWorkflowConsumer.sol";
 import {FeeHandler} from "src/components/fees/FeeHandler.sol";
 import {
     ContinuousFlatRateManagementFeeTracker
@@ -56,6 +57,8 @@ import {ERC7540LikeRedeemQueue} from "src/components/issuance/redeem-handlers/ER
 import {SyncRedeemHandler} from "src/components/issuance/redeem-handlers/SyncRedeemHandler.sol";
 import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesBurnHandler.sol";
 import {SharesOwnedAddressList} from "src/components/lists/SharesOwnedAddressList.sol";
+import {LimitedAccessLimitedCallForwarder} from "src/components/roles/LimitedAccessLimitedCallForwarder.sol";
+import {OpenAccessLimitedCallForwarder} from "src/components/roles/OpenAccessLimitedCallForwarder.sol";
 import {
     AddressListsSharesTransferValidator
 } from "src/components/shares-transfer-validators/AddressListsSharesTransferValidator.sol";
@@ -76,6 +79,7 @@ import {TestHelpers} from "test/utils/TestHelpers.sol";
 
 contract SharesDeployerTest is TestHelpers {
     SharesDeployer deployer;
+    SharesDeployer.Factories factories;
 
     BeaconFactory sharesFactory;
     ComponentBeaconFactory feeHandlerFactory;
@@ -102,6 +106,8 @@ contract SharesDeployerTest is TestHelpers {
     ComponentBeaconFactory aceMintPreMintValidatorFactory;
     ComponentBeaconFactory aceBurnPreBurnValidatorFactory;
     ComponentBeaconFactory aceSharesTransferValidatorFactory;
+    ComponentBeaconFactory limitedAccessLimitedCallForwarderFactory;
+    ComponentBeaconFactory creWorkflowConsumerFactory;
 
     address policyEngineQueuePreRequest;
     address policyEngineQueuePostExecute;
@@ -120,8 +126,15 @@ contract SharesDeployerTest is TestHelpers {
     address adminB = makeAddr("adminB");
     address validator = makeAddr("validator");
     address depositorAllowlist = makeAddr("depositorAllowlist");
+    address keystoneForwarder = makeAddr("keystoneForwarder");
+    address workflowOwner = makeAddr("workflowOwner");
     MockERC20 usdc;
     MockERC20 weth;
+
+    bytes4 constant UPDATE_SHARE_VALUE_SELECTOR = ValuationHandler.updateShareValue.selector;
+    bytes4 constant WITHDRAW_ASSET_TO_SELECTOR = Shares.withdrawAssetTo.selector;
+    bytes10 constant NAV_WORKFLOW_NAME = bytes10("nav-update");
+    bytes10 constant MOVE_ASSETS_WORKFLOW_NAME = bytes10("move-asset");
 
     bytes32 constant VALUE_ASSET = bytes32("USD");
     string constant SHARES_NAME = "Onyx Shares";
@@ -156,6 +169,8 @@ contract SharesDeployerTest is TestHelpers {
         aceMintPreMintValidatorFactory = new ComponentBeaconFactory(address(global));
         aceBurnPreBurnValidatorFactory = new ComponentBeaconFactory(address(global));
         aceSharesTransferValidatorFactory = new ComponentBeaconFactory(address(global));
+        limitedAccessLimitedCallForwarderFactory = new ComponentBeaconFactory(address(global));
+        creWorkflowConsumerFactory = new ComponentBeaconFactory(address(global));
 
         sharesFactory.setImplementation(address(new Shares()));
         feeHandlerFactory.setImplementation(address(new FeeHandler()));
@@ -194,8 +209,16 @@ contract SharesDeployerTest is TestHelpers {
         aceMintPreMintValidatorFactory.setImplementation(address(new ChainlinkAceSharesMintHandlerPreMintValidator()));
         aceBurnPreBurnValidatorFactory.setImplementation(address(new ChainlinkAceSharesBurnHandlerPreBurnValidator()));
         aceSharesTransferValidatorFactory.setImplementation(address(new ChainlinkAceSharesTransferValidator()));
+        limitedAccessLimitedCallForwarderFactory.setImplementation(address(new LimitedAccessLimitedCallForwarder()));
+        creWorkflowConsumerFactory.setImplementation(
+            address(
+                new CreWorkflowConsumer({
+                    _chainlinkKeystoneForwarder: keystoneForwarder, _allowedWorkflowOwner: workflowOwner
+                })
+            )
+        );
 
-        SharesDeployer.Factories memory factories = SharesDeployer.Factories({
+        factories = SharesDeployer.Factories({
             sharesFactory: address(sharesFactory),
             feeHandlerFactory: address(feeHandlerFactory),
             valuationHandlerFactory: address(valuationHandlerFactory),
@@ -220,7 +243,9 @@ contract SharesDeployerTest is TestHelpers {
             aceSyncRedeemPostRedeemValidatorFactory: address(aceSyncRedeemPostRedeemValidatorFactory),
             aceMintPreMintValidatorFactory: address(aceMintPreMintValidatorFactory),
             aceBurnPreBurnValidatorFactory: address(aceBurnPreBurnValidatorFactory),
-            aceSharesTransferValidatorFactory: address(aceSharesTransferValidatorFactory)
+            aceSharesTransferValidatorFactory: address(aceSharesTransferValidatorFactory),
+            limitedAccessLimitedCallForwarderFactory: address(limitedAccessLimitedCallForwarderFactory),
+            creWorkflowConsumerFactory: address(creWorkflowConsumerFactory)
         });
         deployer = new SharesDeployer(factories);
 
@@ -1939,6 +1964,387 @@ contract SharesDeployerTest is TestHelpers {
 
         vm.expectRevert(SharesDeployer.SharesDeployer__PolicyEngineCannotBeZero.selector);
         deployer.deploy(cfg);
+    }
+
+    //==================================================================================================================
+    // Automations
+    //==================================================================================================================
+
+    function test_deploy_automation_navPreset() public {
+        SharesDeployer.DeployConfig memory cfg = __navPreMintConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](1);
+        cfg.automations[0] = __automation(
+            NAV_WORKFLOW_NAME,
+            __singleCall(__callPermission(SharesDeployer.CallTarget.ValuationHandler, 0, UPDATE_SHARE_VALUE_SELECTOR))
+        );
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        (SharesDeployer.Deployed memory d,) = __findVaultDeployedEvent(vm.getRecordedLogs());
+
+        assertEq(d.automations.length, 1, "automation count");
+        CreWorkflowConsumer consumer = CreWorkflowConsumer(d.automations[0].creWorkflowConsumer);
+        LimitedAccessLimitedCallForwarder forwarder =
+            LimitedAccessLimitedCallForwarder(d.automations[0].limitedAccessLimitedCallForwarder);
+
+        assertTrue(shares.isAdmin(address(forwarder)), "forwarder not admin");
+        assertTrue(forwarder.isUser(address(consumer)), "consumer not forwarder user");
+        assertTrue(forwarder.canCall(d.valuationHandler, UPDATE_SHARE_VALUE_SELECTOR), "cannot call updateShareValue");
+        assertEq(address(consumer.getLimitedAccessLimitedCallForwarder()), address(forwarder), "consumer forwarder");
+        assertEq(consumer.getAllowedWorkflowName(), NAV_WORKFLOW_NAME, "workflow name");
+        assertEq(consumer.getAllowedWorkflowId(), bytes32(0), "workflow id must be unset");
+
+        OpenAccessLimitedCallForwarder.Call[] memory calls = new OpenAccessLimitedCallForwarder.Call[](1);
+        calls[0] = OpenAccessLimitedCallForwarder.Call({
+            target: d.valuationHandler,
+            data: abi.encodeCall(ValuationHandler.updateShareValue, (int256(3000e18))),
+            value: 0
+        });
+        bytes32 workflowId = keccak256("navWorkflowId");
+        bytes memory metadata = abi.encodePacked(workflowId, NAV_WORKFLOW_NAME, workflowOwner);
+        bytes memory report =
+            abi.encode(CreWorkflowConsumer.Report({nonce: 1, expiresAt: block.timestamp + 1, calls: calls}));
+
+        // Inert until the client authorizes the workflow
+        vm.expectRevert(CreWorkflowConsumer.CreWorkflowConsumer__OnReport__InvalidWorkflowId.selector);
+        vm.prank(keystoneForwarder);
+        consumer.onReport(metadata, report);
+
+        vm.startPrank(deployerWallet);
+        shares.acceptOwnership();
+        consumer.setAllowedWorkflowId(workflowId);
+        vm.stopPrank();
+
+        __sendReport(consumer, NAV_WORKFLOW_NAME, workflowId, calls);
+
+        // 3000e18 untracked value / 150e18 pre-minted shares
+        (uint256 shareValue,) = ValuationHandler(d.valuationHandler).getShareValue();
+        assertEq(shareValue, 20e18, "share value not updated");
+    }
+
+    function test_deploy_automation_moveAssetsPreset() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](1);
+        cfg.automations[0] = __automation(
+            MOVE_ASSETS_WORKFLOW_NAME,
+            __singleCall(__callPermission(SharesDeployer.CallTarget.Shares, 0, WITHDRAW_ASSET_TO_SELECTOR))
+        );
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        (SharesDeployer.Deployed memory d,) = __findVaultDeployedEvent(vm.getRecordedLogs());
+
+        LimitedAccessLimitedCallForwarder forwarder =
+            LimitedAccessLimitedCallForwarder(d.automations[0].limitedAccessLimitedCallForwarder);
+        assertTrue(shares.isAdmin(address(forwarder)), "forwarder not admin");
+        assertTrue(forwarder.isUser(d.automations[0].creWorkflowConsumer), "consumer not forwarder user");
+        assertTrue(forwarder.canCall(address(shares), WITHDRAW_ASSET_TO_SELECTOR), "cannot call withdrawAssetTo");
+        CreWorkflowConsumer consumer = CreWorkflowConsumer(d.automations[0].creWorkflowConsumer);
+        assertEq(consumer.getAllowedWorkflowName(), MOVE_ASSETS_WORKFLOW_NAME, "workflow name");
+
+        bytes32 workflowId = keccak256("moveAssetsWorkflowId");
+        vm.startPrank(deployerWallet);
+        shares.acceptOwnership();
+        consumer.setAllowedWorkflowId(workflowId);
+        vm.stopPrank();
+
+        uint256 amount = 500e6;
+        address recipient = makeAddr("moveAssetsRecipient");
+        usdc.mintTo(address(shares), amount);
+
+        OpenAccessLimitedCallForwarder.Call[] memory calls = new OpenAccessLimitedCallForwarder.Call[](1);
+        calls[0] = OpenAccessLimitedCallForwarder.Call({
+            target: address(shares),
+            data: abi.encodeCall(Shares.withdrawAssetTo, (address(usdc), recipient, amount)),
+            value: 0
+        });
+        __sendReport(consumer, MOVE_ASSETS_WORKFLOW_NAME, workflowId, calls);
+
+        assertEq(usdc.balanceOf(recipient), amount, "recipient balance");
+        assertEq(usdc.balanceOf(address(shares)), 0, "shares balance");
+    }
+
+    function test_deploy_automation_multipleAutomationsAreIsolated() public {
+        SharesDeployer.DeployConfig memory cfg = __navPreMintConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](2);
+        cfg.automations[0] = __automation(
+            NAV_WORKFLOW_NAME,
+            __singleCall(__callPermission(SharesDeployer.CallTarget.ValuationHandler, 0, UPDATE_SHARE_VALUE_SELECTOR))
+        );
+        cfg.automations[1] = __automation(
+            MOVE_ASSETS_WORKFLOW_NAME,
+            __singleCall(__callPermission(SharesDeployer.CallTarget.Shares, 0, WITHDRAW_ASSET_TO_SELECTOR))
+        );
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        (SharesDeployer.Deployed memory d,) = __findVaultDeployedEvent(vm.getRecordedLogs());
+
+        SharesDeployer.DeployedAutomation memory nav = d.automations[0];
+        SharesDeployer.DeployedAutomation memory move = d.automations[1];
+        assertTrue(nav.creWorkflowConsumer != move.creWorkflowConsumer, "shared consumer");
+        assertTrue(nav.limitedAccessLimitedCallForwarder != move.limitedAccessLimitedCallForwarder, "shared forwarder");
+
+        LimitedAccessLimitedCallForwarder navForwarder =
+            LimitedAccessLimitedCallForwarder(nav.limitedAccessLimitedCallForwarder);
+        LimitedAccessLimitedCallForwarder moveForwarder =
+            LimitedAccessLimitedCallForwarder(move.limitedAccessLimitedCallForwarder);
+
+        assertTrue(shares.isAdmin(address(navForwarder)), "nav forwarder not admin");
+        assertTrue(shares.isAdmin(address(moveForwarder)), "move forwarder not admin");
+
+        assertFalse(navForwarder.canCall(address(shares), WITHDRAW_ASSET_TO_SELECTOR), "nav can withdraw");
+        assertFalse(navForwarder.isUser(move.creWorkflowConsumer), "nav forwarder serves move consumer");
+        assertFalse(
+            moveForwarder.canCall(d.valuationHandler, UPDATE_SHARE_VALUE_SELECTOR), "move can update share value"
+        );
+        assertFalse(moveForwarder.isUser(nav.creWorkflowConsumer), "move forwarder serves nav consumer");
+    }
+
+    function test_deploy_automation_emptyCalls() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](1);
+        cfg.automations[0] = __automation(NAV_WORKFLOW_NAME, new SharesDeployer.CallPermission[](0));
+
+        vm.recordLogs();
+        Shares shares = Shares(deployer.deploy(cfg));
+        (SharesDeployer.Deployed memory d,) = __findVaultDeployedEvent(vm.getRecordedLogs());
+
+        LimitedAccessLimitedCallForwarder forwarder =
+            LimitedAccessLimitedCallForwarder(d.automations[0].limitedAccessLimitedCallForwarder);
+        assertTrue(shares.isAdmin(address(forwarder)), "forwarder not admin");
+        assertTrue(forwarder.isUser(d.automations[0].creWorkflowConsumer), "consumer not forwarder user");
+        assertFalse(forwarder.canCall(address(shares), WITHDRAW_ASSET_TO_SELECTOR), "unexpected call permission");
+
+        // Client can add a call permission later
+        address runtimeTarget = makeAddr("runtimeTarget");
+        bytes4 selector = bytes4(keccak256("foo()"));
+        vm.startPrank(deployerWallet);
+        shares.acceptOwnership();
+        forwarder.addCall(runtimeTarget, selector);
+        vm.stopPrank();
+        assertTrue(forwarder.canCall(runtimeTarget, selector), "owner cannot add call later");
+    }
+
+    function test_deploy_automation_customTargets() public {
+        SharesDeployer.DeployConfig memory cfg = __fullConfig();
+
+        // Two of each indexed handler kind, so index 1 must resolve to the second one
+        cfg.components.queueDepositHandlers = new SharesDeployer.QueueDepositHandlerConfig[](2);
+        cfg.components.queueDepositHandlers[0] =
+            __queueCfg(address(usdc), 0, ERC7540LikeDepositQueue.DepositRestriction.None);
+        cfg.components.queueDepositHandlers[1] =
+            __queueCfg(address(weth), 0, ERC7540LikeDepositQueue.DepositRestriction.None);
+        cfg.components.syncDepositHandlers = new SharesDeployer.SyncDepositHandlerConfig[](2);
+        cfg.components.syncDepositHandlers[0] = __syncCfg(address(usdc), 0);
+        cfg.components.syncDepositHandlers[1] = __syncCfg(address(weth), 0);
+        cfg.components.syncRedeemHandlers = new SharesDeployer.SyncRedeemHandlerConfig[](2);
+        cfg.components.syncRedeemHandlers[0] = __syncRedeemCfg(address(usdc), 0);
+        cfg.components.syncRedeemHandlers[1] = __syncRedeemCfg(address(weth), 0);
+        cfg.components.redeemHandlers = new SharesDeployer.RedeemHandlerConfig[](2);
+        cfg.components.redeemHandlers[0] = SharesDeployer.RedeemHandlerConfig({
+            asset: address(usdc),
+            minRequestDuration: 0,
+            preRequestRedeemHook: __hookNone(),
+            postExecuteRedeemRequestHook: __hookNone()
+        });
+        cfg.components.redeemHandlers[1] = SharesDeployer.RedeemHandlerConfig({
+            asset: address(weth),
+            minRequestDuration: 0,
+            preRequestRedeemHook: __hookNone(),
+            postExecuteRedeemRequestHook: __hookNone()
+        });
+
+        address external_ = makeAddr("externalTarget");
+        bytes4 sel = bytes4(keccak256("custom()"));
+        SharesDeployer.CallPermission[] memory calls = new SharesDeployer.CallPermission[](8);
+        calls[0] = __callPermission(SharesDeployer.CallTarget.External, 0, sel);
+        calls[0].externalTarget = external_;
+        calls[1] = __callPermission(SharesDeployer.CallTarget.FeeHandler, 0, sel);
+        calls[2] = __callPermission(SharesDeployer.CallTarget.QueueDepositHandler, 1, sel);
+        calls[3] = __callPermission(SharesDeployer.CallTarget.SyncDepositHandler, 1, sel);
+        calls[4] = __callPermission(SharesDeployer.CallTarget.SyncRedeemHandler, 1, sel);
+        calls[5] = __callPermission(SharesDeployer.CallTarget.QueueRedeemHandler, 1, sel);
+        calls[6] = __callPermission(SharesDeployer.CallTarget.SharesMintHandler, 0, sel);
+        calls[7] = __callPermission(SharesDeployer.CallTarget.SharesBurnHandler, 0, sel);
+        cfg.automations = new SharesDeployer.AutomationConfig[](1);
+        cfg.automations[0] = __automation(bytes10("custom"), calls);
+
+        vm.recordLogs();
+        deployer.deploy(cfg);
+        (SharesDeployer.Deployed memory d,) = __findVaultDeployedEvent(vm.getRecordedLogs());
+        LimitedAccessLimitedCallForwarder f =
+            LimitedAccessLimitedCallForwarder(d.automations[0].limitedAccessLimitedCallForwarder);
+
+        assertTrue(f.canCall(external_, sel), "external");
+        assertTrue(f.canCall(d.feeHandler, sel), "feeHandler");
+        assertTrue(f.canCall(d.queueDepositHandlers[1], sel), "queueDeposit[1]");
+        assertFalse(f.canCall(d.queueDepositHandlers[0], sel), "queueDeposit[0]");
+        assertTrue(f.canCall(d.syncDepositHandlers[1], sel), "syncDeposit[1]");
+        assertFalse(f.canCall(d.syncDepositHandlers[0], sel), "syncDeposit[0]");
+        assertTrue(f.canCall(d.syncRedeemHandlers[1], sel), "syncRedeem[1]");
+        assertFalse(f.canCall(d.syncRedeemHandlers[0], sel), "syncRedeem[0]");
+        assertTrue(f.canCall(d.redeemHandlers[1], sel), "queueRedeem[1]");
+        assertFalse(f.canCall(d.redeemHandlers[0], sel), "queueRedeem[0]");
+        assertTrue(f.canCall(d.sharesMintHandler, sel), "mintHandler");
+        assertTrue(f.canCall(d.sharesBurnHandler, sel), "burnHandler");
+    }
+
+    function test_deploy_automation_emitsDeployedAutomations() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](2);
+        cfg.automations[0] = __automation(NAV_WORKFLOW_NAME, new SharesDeployer.CallPermission[](0));
+        cfg.automations[1] = __automation(MOVE_ASSETS_WORKFLOW_NAME, new SharesDeployer.CallPermission[](0));
+
+        vm.recordLogs();
+        deployer.deploy(cfg);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (SharesDeployer.Deployed memory d,) = __findVaultDeployedEvent(logs);
+
+        address[] memory consumers = __collectProxiesFromFactory(logs, address(creWorkflowConsumerFactory));
+        address[] memory forwarders =
+            __collectProxiesFromFactory(logs, address(limitedAccessLimitedCallForwarderFactory));
+        assertEq(d.automations.length, 2, "automations len");
+        assertEq(consumers.length, 2, "consumer count");
+        assertEq(forwarders.length, 2, "forwarder count");
+        for (uint256 i; i < 2; i++) {
+            assertEq(d.automations[i].creWorkflowConsumer, consumers[i], "event consumer");
+            assertEq(d.automations[i].limitedAccessLimitedCallForwarder, forwarders[i], "event forwarder");
+        }
+    }
+
+    function test_deploy_automation_noConsumerFactory_succeedsWithoutAutomations() public {
+        SharesDeployer.Factories memory f = factories;
+        f.creWorkflowConsumerFactory = address(0);
+        SharesDeployer noCreDeployer = new SharesDeployer(f);
+
+        noCreDeployer.deploy(__minimalConfig());
+    }
+
+    function test_deploy_revertsOn_automationsWithoutConsumerFactory() public {
+        SharesDeployer.Factories memory f = factories;
+        f.creWorkflowConsumerFactory = address(0);
+        SharesDeployer noCreDeployer = new SharesDeployer(f);
+
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](1);
+        cfg.automations[0] = __automation(NAV_WORKFLOW_NAME, new SharesDeployer.CallPermission[](0));
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__AutomationsUnavailable.selector);
+        noCreDeployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_automationWorkflowNameZero() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](1);
+        cfg.automations[0] = __automation(bytes10(0), new SharesDeployer.CallPermission[](0));
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__WorkflowNameCannotBeZero.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_automationExternalCallTargetZero() public {
+        SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+        cfg.automations = new SharesDeployer.AutomationConfig[](1);
+        cfg.automations[0] = __automation(
+            NAV_WORKFLOW_NAME, __singleCall(__callPermission(SharesDeployer.CallTarget.External, 0, bytes4(0x12345678)))
+        );
+
+        vm.expectRevert(SharesDeployer.SharesDeployer__ExternalCallTargetCannotBeZero.selector);
+        deployer.deploy(cfg);
+    }
+
+    function test_deploy_revertsOn_automationCallTargetNotDeployed() public {
+        SharesDeployer.CallTarget[4] memory targets = [
+            SharesDeployer.CallTarget.ValuationHandler,
+            SharesDeployer.CallTarget.FeeHandler,
+            SharesDeployer.CallTarget.SharesMintHandler,
+            SharesDeployer.CallTarget.SharesBurnHandler
+        ];
+
+        for (uint256 i; i < targets.length; i++) {
+            SharesDeployer.DeployConfig memory cfg = __minimalConfig();
+            cfg.automations = new SharesDeployer.AutomationConfig[](1);
+            cfg.automations[0] =
+                __automation(NAV_WORKFLOW_NAME, __singleCall(__callPermission(targets[i], 0, bytes4(0x12345678))));
+
+            vm.expectRevert(SharesDeployer.SharesDeployer__CallTargetNotDeployed.selector);
+            deployer.deploy(cfg);
+        }
+    }
+
+    function test_deploy_revertsOn_automationCallTargetHandlerIndexOutOfBounds() public {
+        SharesDeployer.CallTarget[4] memory targets = [
+            SharesDeployer.CallTarget.QueueDepositHandler,
+            SharesDeployer.CallTarget.SyncDepositHandler,
+            SharesDeployer.CallTarget.SyncRedeemHandler,
+            SharesDeployer.CallTarget.QueueRedeemHandler
+        ];
+
+        for (uint256 i; i < targets.length; i++) {
+            // fullConfig deploys exactly one handler of each indexed kind
+            SharesDeployer.DeployConfig memory cfg = __fullConfig();
+            cfg.automations = new SharesDeployer.AutomationConfig[](1);
+            cfg.automations[0] =
+                __automation(NAV_WORKFLOW_NAME, __singleCall(__callPermission(targets[i], 1, bytes4(0x12345678))));
+
+            vm.expectRevert(SharesDeployer.SharesDeployer__CallTargetHandlerIndexOutOfBounds.selector);
+            deployer.deploy(cfg);
+        }
+    }
+
+    /// @dev Valuation handler + pre-mint of 150e18 shares at 1000e18 untracked value
+    function __navPreMintConfig() internal view returns (SharesDeployer.DeployConfig memory cfg_) {
+        cfg_ = __minimalConfig();
+        ValuationHandler.AssetRateInput[] memory rates;
+        cfg_.components.valuationHandler = SharesDeployer.ValuationHandlerConfig({deploy: true, assetRates: rates});
+        cfg_.preMint = SharesDeployer.PreMintConfig({
+            enabled: true,
+            untrackedPositionsValue: int256(1000e18),
+            recipients: new SharesDeployer.PreMintRecipient[](1)
+        });
+        cfg_.preMint.recipients[0] = SharesDeployer.PreMintRecipient({to: address(0x9A5), amount: 150e18});
+    }
+
+    function __callPermission(SharesDeployer.CallTarget _target, uint256 _handlerIndex, bytes4 _selector)
+        internal
+        pure
+        returns (SharesDeployer.CallPermission memory)
+    {
+        return SharesDeployer.CallPermission({
+            target: _target, handlerIndex: _handlerIndex, externalTarget: address(0), selector: _selector
+        });
+    }
+
+    function __singleCall(SharesDeployer.CallPermission memory _call)
+        internal
+        pure
+        returns (SharesDeployer.CallPermission[] memory calls_)
+    {
+        calls_ = new SharesDeployer.CallPermission[](1);
+        calls_[0] = _call;
+    }
+
+    function __automation(bytes10 _workflowName, SharesDeployer.CallPermission[] memory _calls)
+        internal
+        pure
+        returns (SharesDeployer.AutomationConfig memory)
+    {
+        return SharesDeployer.AutomationConfig({workflowName: _workflowName, calls: _calls});
+    }
+
+    function __sendReport(
+        CreWorkflowConsumer _consumer,
+        bytes10 _workflowName,
+        bytes32 _workflowId,
+        OpenAccessLimitedCallForwarder.Call[] memory _calls
+    ) internal {
+        bytes memory metadata = abi.encodePacked(_workflowId, _workflowName, workflowOwner);
+        bytes memory report =
+            abi.encode(CreWorkflowConsumer.Report({nonce: 1, expiresAt: block.timestamp + 1, calls: _calls}));
+
+        vm.prank(keystoneForwarder);
+        _consumer.onReport(metadata, report);
     }
 
     //==================================================================================================================

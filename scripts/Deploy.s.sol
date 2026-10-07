@@ -361,7 +361,9 @@ contract DeployProtocol is Script {
                 ),
                 aceMintPreMintValidatorFactory: address(addrs.chainlinkAceMintPreMintValidatorFactory),
                 aceBurnPreBurnValidatorFactory: address(addrs.chainlinkAceBurnPreBurnValidatorFactory),
-                aceSharesTransferValidatorFactory: address(addrs.chainlinkAceSharesTransferValidatorFactory)
+                aceSharesTransferValidatorFactory: address(addrs.chainlinkAceSharesTransferValidatorFactory),
+                limitedAccessLimitedCallForwarderFactory: address(addrs.limitedAccessLimitedCallForwarderFactory),
+                creWorkflowConsumerFactory: address(addrs.creWorkflowConsumerFactory)
             })
         );
 

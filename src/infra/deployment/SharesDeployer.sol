@@ -15,6 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BeaconFactory} from "src/factories/BeaconFactory.sol";
 import {ComponentBeaconFactory} from "src/factories/ComponentBeaconFactory.sol";
+import {CreWorkflowConsumer} from "src/components/automations/chainlink-cre/CreWorkflowConsumer.sol";
 import {FeeHandler} from "src/components/fees/FeeHandler.sol";
 import {
     ContinuousFlatRateManagementFeeTracker
@@ -31,6 +32,7 @@ import {
 import {ERC7540LikeRedeemQueue} from "src/components/issuance/redeem-handlers/ERC7540LikeRedeemQueue.sol";
 import {SyncRedeemHandler} from "src/components/issuance/redeem-handlers/SyncRedeemHandler.sol";
 import {SharesBurnHandler} from "src/components/issuance/redeem-handlers/SharesBurnHandler.sol";
+import {LimitedAccessLimitedCallForwarder} from "src/components/roles/LimitedAccessLimitedCallForwarder.sol";
 import {
     AddressListsSharesTransferValidator
 } from "src/components/shares-transfer-validators/AddressListsSharesTransferValidator.sol";
@@ -49,6 +51,11 @@ import {Shares} from "src/shares/Shares.sol";
 /// @dev Stateless after construction; safe to call permissionlessly.
 /// `Shares` is initialized with this contract as owner while components are wired. After wiring,
 /// `transferOwnership(config.nominatedOwner)` runs (Ownable2Step pending). The nominee must call `Shares.acceptOwnership()` to complete the handover.
+///
+/// Automations: each `DeployConfig.automations` entry gets its own `CreWorkflowConsumer` and its own
+/// `LimitedAccessLimitedCallForwarder`. The forwarder is made a Shares admin, the consumer is its only user, and the
+/// configured call permissions are added to it. The consumer's workflow ID is never set here: the automation stays
+/// inert until the vault owner (or an admin) authorizes a workflow via `CreWorkflowConsumer.setAllowedWorkflowId()`.
 contract SharesDeployer {
     using SafeERC20 for IERC20;
 
@@ -82,6 +89,9 @@ contract SharesDeployer {
         address aceMintPreMintValidatorFactory;
         address aceBurnPreBurnValidatorFactory;
         address aceSharesTransferValidatorFactory;
+        address limitedAccessLimitedCallForwarderFactory;
+        /// @dev Zero on chains without a Chainlink Keystone forwarder; automations are then unavailable.
+        address creWorkflowConsumerFactory;
     }
 
     /// @dev How the shares transfer validator should be sourced.
@@ -245,6 +255,46 @@ contract SharesDeployer {
         address chainlinkAcePolicyEngine;
     }
 
+    /// @dev Contract an automation's forwarder may call.
+    /// Indexed handler targets (`QueueDepositHandler`, `SyncDepositHandler`, `SyncRedeemHandler`,
+    /// `QueueRedeemHandler`) refer to the handler at `CallPermission.handlerIndex` of the matching
+    /// `ComponentsConfig` array (`QueueRedeemHandler` indexes `redeemHandlers`).
+    /// `External`: the address in `CallPermission.externalTarget`.
+    enum CallTarget {
+        Shares,
+        ValuationHandler,
+        FeeHandler,
+        QueueDepositHandler,
+        SyncDepositHandler,
+        SyncRedeemHandler,
+        QueueRedeemHandler,
+        SharesMintHandler,
+        SharesBurnHandler,
+        External
+    }
+
+    /// @dev One (target, selector) pair an automation's forwarder may call.
+    struct CallPermission {
+        CallTarget target;
+        /// @dev Used for indexed handler targets; must be < that handler config array's length.
+        uint256 handlerIndex;
+        /// @dev Required when `target == External`; ignored otherwise.
+        address externalTarget;
+        bytes4 selector;
+    }
+
+    struct AutomationConfig {
+        /// @dev The CRE workflow name, as encoded in report metadata
+        bytes10 workflowName;
+        /// @dev May be empty; call permissions can be added later by the vault owner or an admin
+        CallPermission[] calls;
+    }
+
+    struct DeployedAutomation {
+        address creWorkflowConsumer;
+        address limitedAccessLimitedCallForwarder;
+    }
+
     struct PreMintRecipient {
         address to;
         uint256 amount;
@@ -281,6 +331,8 @@ contract SharesDeployer {
         PreMintConfig preMint;
         /// @dev Lists deployed once before handlers; consumers use `ExternalListSource.SharedAddressList` + index.
         SharedAddressListDefinition[] sharedAddressLists;
+        /// @dev Each entry gets its own consumer + forwarder pair; see contract-level NatSpec.
+        AutomationConfig[] automations;
     }
 
     struct Deployed {
@@ -312,6 +364,8 @@ contract SharesDeployer {
         address transferValidatorSenderList;
         /// @dev Addresses of `sharedAddressLists` entries in deployment order.
         address[] sharedAddressLists;
+        /// @dev In `DeployConfig.automations` order.
+        DeployedAutomation[] automations;
     }
 
     //==================================================================================================================
@@ -343,6 +397,8 @@ contract SharesDeployer {
     address public immutable CHAINLINK_ACE_MINT_PRE_MINT_VALIDATOR_FACTORY;
     address public immutable CHAINLINK_ACE_BURN_PRE_BURN_VALIDATOR_FACTORY;
     address public immutable CHAINLINK_ACE_SHARES_TRANSFER_VALIDATOR_FACTORY;
+    address public immutable LIMITED_ACCESS_LIMITED_CALL_FORWARDER_FACTORY;
+    address public immutable CRE_WORKFLOW_CONSUMER_FACTORY;
 
     //==================================================================================================================
     // Events
@@ -372,6 +428,11 @@ contract SharesDeployer {
     error SharesDeployer__HookExistingCannotBeZero();
     error SharesDeployer__PolicyEngineCannotBeZero();
     error SharesDeployer__HookNotAllowedWithoutHandler();
+    error SharesDeployer__AutomationsUnavailable();
+    error SharesDeployer__WorkflowNameCannotBeZero();
+    error SharesDeployer__CallTargetNotDeployed();
+    error SharesDeployer__CallTargetHandlerIndexOutOfBounds();
+    error SharesDeployer__ExternalCallTargetCannotBeZero();
 
     //==================================================================================================================
     // Constructor
@@ -404,6 +465,8 @@ contract SharesDeployer {
         CHAINLINK_ACE_MINT_PRE_MINT_VALIDATOR_FACTORY = _factories.aceMintPreMintValidatorFactory;
         CHAINLINK_ACE_BURN_PRE_BURN_VALIDATOR_FACTORY = _factories.aceBurnPreBurnValidatorFactory;
         CHAINLINK_ACE_SHARES_TRANSFER_VALIDATOR_FACTORY = _factories.aceSharesTransferValidatorFactory;
+        LIMITED_ACCESS_LIMITED_CALL_FORWARDER_FACTORY = _factories.limitedAccessLimitedCallForwarderFactory;
+        CRE_WORKFLOW_CONSUMER_FACTORY = _factories.creWorkflowConsumerFactory;
     }
 
     //==================================================================================================================
@@ -444,6 +507,8 @@ contract SharesDeployer {
         if (d.transferValidator != address(0)) {
             shares.setSharesTransferValidator(d.transferValidator);
         }
+
+        d.automations = __deployAutomations(d, _cfg);
 
         for (uint256 i; i < _cfg.admins.length; i++) {
             shares.addAdmin(_cfg.admins[i]);
@@ -512,6 +577,53 @@ contract SharesDeployer {
         __validateMintBurnHandlers(_cfg.components.sharesMintHandler, _cfg.components.sharesBurnHandler);
 
         __validateTransferValidator(_cfg.transferValidator, sharedListCount);
+
+        __validateAutomations(_cfg);
+    }
+
+    function __validateAutomations(DeployConfig calldata _cfg) internal view {
+        AutomationConfig[] calldata automations = _cfg.automations;
+        if (automations.length == 0) return;
+
+        require(CRE_WORKFLOW_CONSUMER_FACTORY != address(0), SharesDeployer__AutomationsUnavailable());
+
+        for (uint256 i; i < automations.length; i++) {
+            require(automations[i].workflowName != bytes10(0), SharesDeployer__WorkflowNameCannotBeZero());
+
+            CallPermission[] calldata calls = automations[i].calls;
+            for (uint256 j; j < calls.length; j++) {
+                __validateCallPermission(_cfg.components, calls[j]);
+            }
+        }
+    }
+
+    function __validateCallPermission(ComponentsConfig calldata _c, CallPermission calldata _p) internal pure {
+        CallTarget t = _p.target;
+
+        if (t == CallTarget.External) {
+            require(_p.externalTarget != address(0), SharesDeployer__ExternalCallTargetCannotBeZero());
+            return;
+        }
+
+        uint256 handlerCount;
+        if (t == CallTarget.QueueDepositHandler) {
+            handlerCount = _c.queueDepositHandlers.length;
+        } else if (t == CallTarget.SyncDepositHandler) {
+            handlerCount = _c.syncDepositHandlers.length;
+        } else if (t == CallTarget.SyncRedeemHandler) {
+            handlerCount = _c.syncRedeemHandlers.length;
+        } else if (t == CallTarget.QueueRedeemHandler) {
+            handlerCount = _c.redeemHandlers.length;
+        } else {
+            bool deployed = t == CallTarget.Shares || (t == CallTarget.ValuationHandler && _c.valuationHandler.deploy)
+                || (t == CallTarget.FeeHandler && _c.feeHandler.deploy)
+                || (t == CallTarget.SharesMintHandler && _c.sharesMintHandler.deploy)
+                || (t == CallTarget.SharesBurnHandler && _c.sharesBurnHandler.deploy);
+            require(deployed, SharesDeployer__CallTargetNotDeployed());
+            return;
+        }
+
+        require(_p.handlerIndex < handlerCount, SharesDeployer__CallTargetHandlerIndexOutOfBounds());
     }
 
     function __validateMintBurnHandlers(SharesMintHandlerConfig calldata _mint, SharesBurnHandlerConfig calldata _burn)
@@ -1120,6 +1232,58 @@ contract SharesDeployer {
             _d.sharesBurnHandler = address(handler);
             _d.sharesBurnHandlerPreBurnHook = preBurnHook;
         }
+    }
+
+    //==================================================================================================================
+    // Internal: automations
+    //==================================================================================================================
+
+    /// @dev Must run after every call target is deployed and while this contract still owns Shares.
+    /// Leaves each consumer's workflow ID unset (see contract-level NatSpec).
+    function __deployAutomations(Deployed memory _d, DeployConfig calldata _cfg)
+        internal
+        returns (DeployedAutomation[] memory automations_)
+    {
+        AutomationConfig[] calldata cfgs = _cfg.automations;
+        automations_ = new DeployedAutomation[](cfgs.length);
+
+        for (uint256 i; i < cfgs.length; i++) {
+            LimitedAccessLimitedCallForwarder forwarder = LimitedAccessLimitedCallForwarder(
+                ComponentBeaconFactory(LIMITED_ACCESS_LIMITED_CALL_FORWARDER_FACTORY).deployProxy(_d.shares, "")
+            );
+            // `init` is unprotected, so it must run atomically with proxy deployment
+            address consumer = ComponentBeaconFactory(CRE_WORKFLOW_CONSUMER_FACTORY)
+                .deployProxy(_d.shares, abi.encodeCall(CreWorkflowConsumer.init, (cfgs[i].workflowName, forwarder)));
+
+            forwarder.addUser(consumer);
+
+            CallPermission[] calldata calls = cfgs[i].calls;
+            for (uint256 j; j < calls.length; j++) {
+                forwarder.addCall(__resolveCallTarget(_d, calls[j]), calls[j].selector);
+            }
+
+            Shares(_d.shares).addAdmin(address(forwarder));
+
+            automations_[i] = DeployedAutomation({
+                creWorkflowConsumer: consumer, limitedAccessLimitedCallForwarder: address(forwarder)
+            });
+        }
+    }
+
+    /// @dev Caller must have already validated the inputs via `__validateCallPermission`.
+    function __resolveCallTarget(Deployed memory _d, CallPermission calldata _p) internal pure returns (address) {
+        CallTarget t = _p.target;
+        if (t == CallTarget.Shares) return _d.shares;
+        if (t == CallTarget.ValuationHandler) return _d.valuationHandler;
+        if (t == CallTarget.FeeHandler) return _d.feeHandler;
+        if (t == CallTarget.QueueDepositHandler) return _d.queueDepositHandlers[_p.handlerIndex];
+        if (t == CallTarget.SyncDepositHandler) return _d.syncDepositHandlers[_p.handlerIndex];
+        if (t == CallTarget.SyncRedeemHandler) return _d.syncRedeemHandlers[_p.handlerIndex];
+        if (t == CallTarget.QueueRedeemHandler) return _d.redeemHandlers[_p.handlerIndex];
+        if (t == CallTarget.SharesMintHandler) return _d.sharesMintHandler;
+        if (t == CallTarget.SharesBurnHandler) return _d.sharesBurnHandler;
+        // CallTarget.External
+        return _p.externalTarget;
     }
 
     //==================================================================================================================
